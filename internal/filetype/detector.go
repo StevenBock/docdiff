@@ -91,9 +91,10 @@ var modelineMap = map[string]string{
 func (d *Detector) detectModeline(content []byte) language.Strategy {
 	searchArea := content
 	if len(content) > 2000 {
-		head := content[:1000]
-		tail := content[len(content)-1000:]
-		searchArea = append(head, tail...)
+		// Must copy to avoid corrupting original content slice
+		searchArea = make([]byte, 2000)
+		copy(searchArea[:1000], content[:1000])
+		copy(searchArea[1000:], content[len(content)-1000:])
 	}
 
 	if matches := vimModelinePattern.FindSubmatch(searchArea); len(matches) > 1 {

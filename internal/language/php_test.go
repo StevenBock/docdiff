@@ -88,6 +88,22 @@ class ApiService {}`,
 			tag:  "@docs",
 			want: []string{"docs/API.md"},
 		},
+		{
+			name: "docblock with generic types",
+			content: `<?php
+/**
+ * @property int $id
+ * @method static Builder<static>|ActivityLog forUser(int $userId)
+ * @method static Builder<static>|ActivityLog query()
+ *
+ * @mixin \Eloquent
+ *
+ * @doc docs/BACKEND.md
+ */
+class ActivityLog extends Model {}`,
+			tag:  "@doc",
+			want: []string{"docs/BACKEND.md"},
+		},
 	}
 
 	for _, tt := range tests {

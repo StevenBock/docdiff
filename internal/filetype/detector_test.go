@@ -400,6 +400,40 @@ func TestDetector_DetectContent(t *testing.T) {
 	}
 }
 
+func TestDetector_ModelineDoesNotCorruptContent(t *testing.T) {
+	registry := language.DefaultRegistry()
+	detector := NewDetector(registry)
+
+	// Create content > 2000 bytes to trigger the modeline search area optimization
+	content := make([]byte, 3591)
+	for i := range content {
+		content[i] = byte('a' + (i % 26))
+	}
+	// Put a marker at position 1000-1010 that we'll check wasn't corrupted
+	copy(content[1000:1010], []byte("MARKER1234"))
+
+	// Save a copy of the original content
+	original := make([]byte, len(content))
+	copy(original, content)
+
+	// Run detection (should not modify content)
+	detector.Detect("file.php", content)
+
+	// Verify content wasn't modified
+	for i := range content {
+		if content[i] != original[i] {
+			t.Errorf("Content was corrupted at position %d: got %d, want %d", i, content[i], original[i])
+			break
+		}
+	}
+
+	// Specifically check our marker
+	marker := string(content[1000:1010])
+	if marker != "MARKER1234" {
+		t.Errorf("Marker at position 1000 was corrupted: got %q, want %q", marker, "MARKER1234")
+	}
+}
+
 func TestDetector_PriorityCascade(t *testing.T) {
 	registry := language.DefaultRegistry()
 	detector := NewDetector(registry)
