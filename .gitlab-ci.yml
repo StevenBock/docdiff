@@ -1,0 +1,60 @@
+stages:
+  - test
+  - build
+
+variables:
+  BINARY_NAME: docdiff
+
+test:
+  stage: test
+  image: golang:1.23
+  script:
+    - go test -race -cover ./...
+
+build:
+  stage: test
+  image: golang:1.23
+  parallel:
+    matrix:
+      - GOOS: linux
+        GOARCH: amd64
+      - GOOS: linux
+        GOARCH: arm64
+      - GOOS: darwin
+        GOARCH: amd64
+      - GOOS: darwin
+        GOARCH: arm64
+      - GOOS: windows
+        GOARCH: amd64
+  script:
+    - |
+      if [ "$GOOS" = "windows" ]; then
+        EXT=".exe"
+      else
+        EXT=""
+      fi
+    - CGO_ENABLED=0 go build -ldflags="-s -w" -o ${BINARY_NAME}-${GOOS}-${GOARCH}${EXT} ./cmd/docdiff
+  artifacts:
+    paths:
+      - ${BINARY_NAME}-*
+    expire_in: 1 week
+
+release:
+  stage: build
+  image: golang:1.23
+  needs:
+    - job: build
+      artifacts: true
+    - job: test
+  script:
+    - mkdir -p dist
+    - mv ${BINARY_NAME}-* dist/
+    - cd dist && sha256sum * > checksums.txt
+  artifacts:
+    name: "${CI_PROJECT_NAME}-${CI_COMMIT_REF_SLUG}"
+    paths:
+      - dist/
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
