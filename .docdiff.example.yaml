@@ -1,0 +1,55 @@
+# docdiff configuration file
+# Copy this to .docdiff.yaml and customize as needed
+
+# The annotation tag to search for in comments (default: "@doc")
+# Change this if @doc conflicts with existing annotations in your codebase
+annotation_tag: "@doc"
+
+# Directory containing documentation files (default: "docs")
+docs_directory: docs
+
+# Path to the metadata file tracking commit hashes (default: "docs/.doc-versions.json")
+metadata_file: docs/.doc-versions.json
+
+# Glob patterns for files to include (empty = all supported files)
+# Examples:
+# include:
+#   - "src/**"
+#   - "app/**"
+#   - "lib/**"
+include: []
+
+# Glob patterns for files to exclude
+exclude:
+  - "vendor/**"
+  - "node_modules/**"
+  - ".git/**"
+  - "dist/**"
+  - "build/**"
+  - "target/**"
+  - "__pycache__/**"
+  - ".venv/**"
+  - "venv/**"
+
+# Language-specific configuration
+# You can enable/disable languages or customize their extensions
+languages:
+  php:
+    enabled: true
+  go:
+    enabled: true
+  java:
+    enabled: true
+  python:
+    enabled: true
+  javascript:
+    enabled: true
+  ruby:
+    enabled: true
+
+# CI mode settings
+ci:
+  # Exit with code 1 when stale docs are found
+  fail_on_stale: true
+  # Exit with code 1 when orphaned files are found (files without @doc)
+  fail_on_orphaned: false

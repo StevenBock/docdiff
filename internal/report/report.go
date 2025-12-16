@@ -1,0 +1,57 @@
+package report
+
+import (
+	"github.com/StevenBock/docdiff/internal/metadata"
+)
+
+type StaleDoc struct {
+	Path           string
+	LastHash       string
+	LastCommitInfo string
+	FilesChanged   int
+	ChangedFiles   []string
+}
+
+type Report struct {
+	Metadata      metadata.DocVersions
+	StaleDocs     map[string]*StaleDoc
+	FilesByDoc    map[string][]string
+	OrphanedFiles []string
+	Summary       Summary
+}
+
+type Summary struct {
+	TotalDocs       int
+	TotalFiles      int
+	DocumentedFiles int
+	OrphanedFiles   int
+	StaleDocs       int
+	CoveragePercent float64
+}
+
+type Formatter interface {
+	Format(report *Report) ([]byte, error)
+}
+
+func NewReport() *Report {
+	return &Report{
+		Metadata:      make(metadata.DocVersions),
+		StaleDocs:     make(map[string]*StaleDoc),
+		FilesByDoc:    make(map[string][]string),
+		OrphanedFiles: make([]string, 0),
+	}
+}
+
+func (r *Report) CalculateSummary() {
+	r.Summary = Summary{
+		TotalDocs:       len(r.Metadata),
+		TotalFiles:      r.Summary.TotalFiles,
+		DocumentedFiles: r.Summary.DocumentedFiles,
+		OrphanedFiles:   len(r.OrphanedFiles),
+		StaleDocs:       len(r.StaleDocs),
+	}
+
+	if r.Summary.TotalFiles > 0 {
+		r.Summary.CoveragePercent = float64(r.Summary.DocumentedFiles) / float64(r.Summary.TotalFiles) * 100
+	}
+}
