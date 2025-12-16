@@ -33,13 +33,17 @@ func TestReport_CalculateSummary(t *testing.T) {
 		"docs/API.md": {Path: "docs/API.md"},
 	}
 	r.OrphanedFiles = []string{"src/orphan1.go", "src/orphan2.go"}
-	r.Summary.TotalFiles = 10
-	r.Summary.DocumentedFiles = 5
 
-	r.CalculateSummary()
+	r.CalculateSummary(10, 5)
 
 	if r.Summary.TotalDocs != 2 {
 		t.Errorf("TotalDocs = %d, want 2", r.Summary.TotalDocs)
+	}
+	if r.Summary.TotalFiles != 10 {
+		t.Errorf("TotalFiles = %d, want 10", r.Summary.TotalFiles)
+	}
+	if r.Summary.DocumentedFiles != 5 {
+		t.Errorf("DocumentedFiles = %d, want 5", r.Summary.DocumentedFiles)
 	}
 	if r.Summary.StaleDocs != 1 {
 		t.Errorf("StaleDocs = %d, want 1", r.Summary.StaleDocs)
@@ -54,9 +58,8 @@ func TestReport_CalculateSummary(t *testing.T) {
 
 func TestReport_CalculateSummary_ZeroFiles(t *testing.T) {
 	r := NewReport()
-	r.Summary.TotalFiles = 0
 
-	r.CalculateSummary()
+	r.CalculateSummary(0, 0)
 
 	if r.Summary.CoveragePercent != 0 {
 		t.Errorf("CoveragePercent should be 0 when no files, got %f", r.Summary.CoveragePercent)

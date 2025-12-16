@@ -3,6 +3,7 @@ package report
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 type SARIFFormatter struct {
@@ -95,7 +96,14 @@ func (s *SARIFFormatter) Format(report *Report) ([]byte, error) {
 		}},
 	}
 
-	for docPath, stale := range report.StaleDocs {
+	docPaths := make([]string, 0, len(report.StaleDocs))
+	for docPath := range report.StaleDocs {
+		docPaths = append(docPaths, docPath)
+	}
+	sort.Strings(docPaths)
+
+	for _, docPath := range docPaths {
+		stale := report.StaleDocs[docPath]
 		result := sarifResult{
 			RuleID: "stale-doc",
 			Message: sarifDescription{

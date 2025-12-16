@@ -360,8 +360,27 @@ func Handler() { /* modified */ }
 }
 
 func TestIsCI(t *testing.T) {
-	originalCI := os.Getenv("CI")
-	defer os.Setenv("CI", originalCI)
+	originalCI, ciSet := os.LookupEnv("CI")
+	originalGHA, ghaSet := os.LookupEnv("GITHUB_ACTIONS")
+	originalGitlab, gitlabSet := os.LookupEnv("GITLAB_CI")
+
+	defer func() {
+		if ciSet {
+			os.Setenv("CI", originalCI)
+		} else {
+			os.Unsetenv("CI")
+		}
+		if ghaSet {
+			os.Setenv("GITHUB_ACTIONS", originalGHA)
+		} else {
+			os.Unsetenv("GITHUB_ACTIONS")
+		}
+		if gitlabSet {
+			os.Setenv("GITLAB_CI", originalGitlab)
+		} else {
+			os.Unsetenv("GITLAB_CI")
+		}
+	}()
 
 	os.Unsetenv("CI")
 	os.Unsetenv("GITHUB_ACTIONS")

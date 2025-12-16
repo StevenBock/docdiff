@@ -133,18 +133,18 @@ type contentHeuristic struct {
 
 var contentHeuristics = []contentHeuristic{
 	{regexp.MustCompile(`<\?php`), "php"},
-	{regexp.MustCompile(`^import\s+java\.`), "java"},
-	{regexp.MustCompile(`^package\s+[\w.]+;`), "java"},
-	{regexp.MustCompile(`^import\s+.*\s+from\s+['"]`), "javascript"},
-	{regexp.MustCompile(`^export\s+(?:default\s+)?(?:const|let|var|function|class)`), "javascript"},
+	{regexp.MustCompile(`(?m)^import\s+java\.`), "java"},
+	{regexp.MustCompile(`(?m)^package\s+[\w.]+;`), "java"},
+	{regexp.MustCompile(`(?m)^import\s+.*\s+from\s+['"]`), "javascript"},
+	{regexp.MustCompile(`(?m)^export\s+(?:default\s+)?(?:const|let|var|function|class)`), "javascript"},
 	{regexp.MustCompile(`(?:const|let|var|function)\s+\w+`), "javascript"},
-	{regexp.MustCompile(`^package\s+\w+`), "go"},
-	{regexp.MustCompile(`^from\s+\w+\s+import`), "python"},
-	{regexp.MustCompile(`^import\s+\w+`), "python"},
-	{regexp.MustCompile(`^def\s+\w+.*:`), "python"},
-	{regexp.MustCompile(`^class\s+\w+.*:`), "python"},
-	{regexp.MustCompile(`^require\s+['"]`), "ruby"},
-	{regexp.MustCompile(`^module\s+\w+`), "ruby"},
+	{regexp.MustCompile(`(?m)^package\s+\w+`), "go"},
+	{regexp.MustCompile(`(?m)^from\s+\w+\s+import`), "python"},
+	{regexp.MustCompile(`(?m)^import\s+\w+`), "python"},
+	{regexp.MustCompile(`(?m)^def\s+\w+.*:`), "python"},
+	{regexp.MustCompile(`(?m)^class\s+\w+.*:`), "python"},
+	{regexp.MustCompile(`(?m)^require\s+['"]`), "ruby"},
+	{regexp.MustCompile(`(?m)^module\s+\w+`), "ruby"},
 }
 
 func (d *Detector) detectContent(content []byte) (language.Strategy, bool) {

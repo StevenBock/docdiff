@@ -42,11 +42,11 @@ func NewReport() *Report {
 	}
 }
 
-func (r *Report) CalculateSummary() {
+func (r *Report) CalculateSummary(totalFiles, documentedFiles int) {
 	r.Summary = Summary{
 		TotalDocs:       len(r.Metadata),
-		TotalFiles:      r.Summary.TotalFiles,
-		DocumentedFiles: r.Summary.DocumentedFiles,
+		TotalFiles:      totalFiles,
+		DocumentedFiles: documentedFiles,
 		OrphanedFiles:   len(r.OrphanedFiles),
 		StaleDocs:       len(r.StaleDocs),
 	}

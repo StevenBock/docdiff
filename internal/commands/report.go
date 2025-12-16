@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -10,6 +11,11 @@ import (
 	"github.com/StevenBock/docdiff/internal/metadata"
 	"github.com/StevenBock/docdiff/internal/report"
 	"github.com/StevenBock/docdiff/internal/scanner"
+)
+
+var (
+	ErrStaleDocsFound    = errors.New("stale documentation found")
+	ErrOrphanedFilesFound = errors.New("orphaned files found")
 )
 
 var (
@@ -69,6 +75,7 @@ func runReport(cmd *cobra.Command, args []string) error {
 
 		changed, err := g.ChangedFilesBetween(lastHash, "HEAD", files)
 		if err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to check changes for %s (%s..HEAD): %v\n", doc, lastHash, err)
 			continue
 		}
 
@@ -89,9 +96,7 @@ func runReport(cmd *cobra.Command, args []string) error {
 	rpt.StaleDocs = staleDocs
 	rpt.FilesByDoc = scanResult.FilesByDoc
 	rpt.OrphanedFiles = scanResult.OrphanedFiles()
-	rpt.Summary.TotalFiles = len(scanResult.AllFiles)
-	rpt.Summary.DocumentedFiles = len(scanResult.Annotations)
-	rpt.CalculateSummary()
+	rpt.CalculateSummary(len(scanResult.AllFiles), len(scanResult.Annotations))
 
 	var formatter report.Formatter
 	switch {
@@ -116,10 +121,10 @@ func runReport(cmd *cobra.Command, args []string) error {
 
 	if reportCI || isCI() {
 		if cfg.CI.FailOnStale && len(staleDocs) > 0 {
-			os.Exit(1)
+			return ErrStaleDocsFound
 		}
 		if cfg.CI.FailOnOrphaned && len(rpt.OrphanedFiles) > 0 {
-			os.Exit(1)
+			return ErrOrphanedFilesFound
 		}
 	}
 

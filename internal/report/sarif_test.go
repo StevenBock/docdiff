@@ -127,7 +127,9 @@ func TestSARIFFormatter_Format_NoStale(t *testing.T) {
 	}
 
 	var sarif map[string]interface{}
-	json.Unmarshal(output, &sarif)
+	if err := json.Unmarshal(output, &sarif); err != nil {
+		t.Fatalf("Failed to unmarshal SARIF output: %v", err)
+	}
 
 	runs := sarif["runs"].([]interface{})
 	run := runs[0].(map[string]interface{})
@@ -149,7 +151,9 @@ func TestSARIFFormatter_Format_DefaultVersion(t *testing.T) {
 	}
 
 	var sarif map[string]interface{}
-	json.Unmarshal(output, &sarif)
+	if err := json.Unmarshal(output, &sarif); err != nil {
+		t.Fatalf("Failed to unmarshal SARIF output: %v", err)
+	}
 
 	runs := sarif["runs"].([]interface{})
 	run := runs[0].(map[string]interface{})
@@ -187,7 +191,9 @@ func TestSARIFFormatter_Format_MultipleStale(t *testing.T) {
 	}
 
 	var sarif map[string]interface{}
-	json.Unmarshal(output, &sarif)
+	if err := json.Unmarshal(output, &sarif); err != nil {
+		t.Fatalf("Failed to unmarshal SARIF output: %v", err)
+	}
 
 	runs := sarif["runs"].([]interface{})
 	run := runs[0].(map[string]interface{})

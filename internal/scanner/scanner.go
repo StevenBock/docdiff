@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -81,7 +82,12 @@ func (s *Scanner) Scan(rootDir string) (*Result, error) {
 
 func (s *Scanner) isExcluded(relPath string) bool {
 	for _, pattern := range s.config.Exclude {
-		if matched, _ := doublestar.Match(pattern, relPath); matched {
+		matched, err := doublestar.Match(pattern, relPath)
+		if err != nil {
+			log.Printf("Warning: invalid exclude pattern %q: %v", pattern, err)
+			continue
+		}
+		if matched {
 			return true
 		}
 	}
@@ -90,7 +96,12 @@ func (s *Scanner) isExcluded(relPath string) bool {
 
 func (s *Scanner) isIncluded(relPath string) bool {
 	for _, pattern := range s.config.Include {
-		if matched, _ := doublestar.Match(pattern, relPath); matched {
+		matched, err := doublestar.Match(pattern, relPath)
+		if err != nil {
+			log.Printf("Warning: invalid include pattern %q: %v", pattern, err)
+			continue
+		}
+		if matched {
 			return true
 		}
 	}
