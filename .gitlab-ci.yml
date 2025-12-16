@@ -1,6 +1,7 @@
 stages:
   - test
   - build
+  - release
 
 variables:
   BINARY_NAME: docdiff
@@ -12,7 +13,7 @@ test:
     - go test -race -cover ./...
 
 build:
-  stage: test
+  stage: build
   image: golang:1.23
   parallel:
     matrix:
@@ -40,7 +41,7 @@ build:
     expire_in: 1 week
 
 release:
-  stage: build
+  stage: release
   image: golang:1.23
   needs:
     - job: build
