@@ -23,6 +23,7 @@ func DefaultRegistry() *Registry {
 	r.Register(NewPythonStrategy())
 	r.Register(NewJavaScriptStrategy())
 	r.Register(NewRubyStrategy())
+	r.Register(NewVueStrategy())
 	return r
 }
 
