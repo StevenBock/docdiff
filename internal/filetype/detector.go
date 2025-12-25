@@ -36,15 +36,19 @@ func (d *Detector) Detect(path string, content []byte) (language.Strategy, bool)
 var shebangPattern = regexp.MustCompile(`^#!\s*(?:/usr/bin/env\s+)?(?:[^\s]+/)?([^\s/]+)`)
 
 var shebangMap = map[string]string{
-	"python":  "python",
-	"python3": "python",
-	"python2": "python",
-	"ruby":    "ruby",
-	"node":    "javascript",
-	"nodejs":  "javascript",
-	"ts-node": "javascript",
-	"deno":    "javascript",
-	"php":     "php",
+	"python":     "python",
+	"python3":    "python",
+	"python2":    "python",
+	"ruby":       "ruby",
+	"node":       "javascript",
+	"nodejs":     "javascript",
+	"ts-node":    "javascript",
+	"deno":       "javascript",
+	"php":        "php",
+	"bash":       "shell",
+	"sh":         "shell",
+	"pwsh":       "powershell",
+	"powershell": "powershell",
 }
 
 func (d *Detector) detectShebang(content []byte) language.Strategy {
@@ -86,6 +90,11 @@ var modelineMap = map[string]string{
 	"go":         "go",
 	"golang":     "go",
 	"java":       "java",
+	"shell":      "shell",
+	"bash":       "shell",
+	"sh":         "shell",
+	"powershell": "powershell",
+	"ps1":        "powershell",
 }
 
 func (d *Detector) detectModeline(content []byte) language.Strategy {
@@ -136,6 +145,12 @@ var contentHeuristics = []contentHeuristic{
 	{regexp.MustCompile(`<\?php`), "php"},
 	{regexp.MustCompile(`(?m)^import\s+java\.`), "java"},
 	{regexp.MustCompile(`(?m)^package\s+[\w.]+;`), "java"},
+	{regexp.MustCompile(`\bWrite-(?:Host|Output|Error|Verbose)\b`), "powershell"},
+	{regexp.MustCompile(`\bGet-\w+\b`), "powershell"},
+	{regexp.MustCompile(`(?m)^param\s*\(`), "powershell"},
+	{regexp.MustCompile(`(?m)^if\s*\[\s*-[a-z]+`), "shell"},
+	{regexp.MustCompile(`(?m)^case\s+\$\w+\s+in`), "shell"},
+	{regexp.MustCompile(`\b(?:echo|source)\s+`), "shell"},
 	{regexp.MustCompile(`(?m)^import\s+.*\s+from\s+['"]`), "javascript"},
 	{regexp.MustCompile(`(?m)^export\s+(?:default\s+)?(?:const|let|var|function|class)`), "javascript"},
 	{regexp.MustCompile(`(?:const|let|var|function)\s+\w+`), "javascript"},
@@ -146,6 +161,7 @@ var contentHeuristics = []contentHeuristic{
 	{regexp.MustCompile(`(?m)^class\s+\w+.*:`), "python"},
 	{regexp.MustCompile(`(?m)^require\s+['"]`), "ruby"},
 	{regexp.MustCompile(`(?m)^module\s+\w+`), "ruby"},
+	{regexp.MustCompile(`(?m)^function\s+\w+\s*\(\s*\)\s*\{`), "shell"},
 }
 
 func (d *Detector) detectContent(content []byte) (language.Strategy, bool) {

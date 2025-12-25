@@ -24,6 +24,8 @@ func DefaultRegistry() *Registry {
 	r.Register(NewJavaScriptStrategy())
 	r.Register(NewRubyStrategy())
 	r.Register(NewVueStrategy())
+	r.Register(NewShellStrategy())
+	r.Register(NewPowerShellStrategy())
 	return r
 }
 

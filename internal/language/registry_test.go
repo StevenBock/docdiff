@@ -18,7 +18,7 @@ func TestRegistry(t *testing.T) {
 	t.Run("DefaultRegistry has all built-in languages", func(t *testing.T) {
 		r := DefaultRegistry()
 
-		expectedLangs := []string{"php", "go", "java", "python", "javascript", "ruby", "vue"}
+		expectedLangs := []string{"php", "go", "java", "python", "javascript", "ruby", "vue", "shell", "powershell"}
 		for _, lang := range expectedLangs {
 			if _, ok := r.GetByName(lang); !ok {
 				t.Errorf("DefaultRegistry missing language: %s", lang)
@@ -47,6 +47,10 @@ func TestRegistry(t *testing.T) {
 			{".rb", "ruby"},
 			{".rake", "ruby"},
 			{".vue", "vue"},
+			{".sh", "shell"},
+			{".bash", "shell"},
+			{".ps1", "powershell"},
+			{".psm1", "powershell"},
 		}
 
 		for _, tt := range tests {
@@ -103,8 +107,8 @@ func TestRegistry(t *testing.T) {
 		r := DefaultRegistry()
 		strategies := r.AllStrategies()
 
-		if len(strategies) != 7 {
-			t.Errorf("AllStrategies() returned %d strategies, want 7", len(strategies))
+		if len(strategies) != 9 {
+			t.Errorf("AllStrategies() returned %d strategies, want 9", len(strategies))
 		}
 	})
 
@@ -112,8 +116,8 @@ func TestRegistry(t *testing.T) {
 		r := DefaultRegistry()
 		exts := r.AllExtensions()
 
-		if len(exts) < 10 {
-			t.Errorf("AllExtensions() returned %d extensions, want at least 10", len(exts))
+		if len(exts) < 14 {
+			t.Errorf("AllExtensions() returned %d extensions, want at least 14", len(exts))
 		}
 	})
 }
