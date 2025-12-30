@@ -7,9 +7,10 @@ import (
 )
 
 type HumanFormatter struct {
-	ShowStaleOnly    bool
-	ShowOrphanedOnly bool
-	Tag              string
+	ShowStaleOnly        bool
+	ShowOrphanedOnly     bool
+	ShowUndocumentedOnly bool
+	Tag                  string
 }
 
 func (h *HumanFormatter) Format(report *Report) ([]byte, error) {
@@ -19,6 +20,10 @@ func (h *HumanFormatter) Format(report *Report) ([]byte, error) {
 
 	if h.ShowOrphanedOnly {
 		return h.formatOrphanedOnly(report)
+	}
+
+	if h.ShowUndocumentedOnly {
+		return h.formatUndocumentedOnly(report)
 	}
 
 	return h.formatFull(report)
@@ -80,12 +85,38 @@ func (h *HumanFormatter) formatFull(report *Report) ([]byte, error) {
 		buf.WriteString("\n")
 	}
 
+	if len(report.UndocumentedRefs) > 0 {
+		tag := h.Tag
+		if tag == "" {
+			tag = "@doc"
+		}
+		buf.WriteString("UNDOCUMENTED REFERENCES (docs reference files without back-link):\n")
+
+		byDoc := make(map[string][]string)
+		for _, ref := range report.UndocumentedRefs {
+			byDoc[ref.DocPath] = append(byDoc[ref.DocPath], ref.SourceFile)
+		}
+
+		docs := sortedKeys(byDoc)
+		for _, doc := range docs {
+			files := byDoc[doc]
+			fmt.Fprintf(&buf, "  %s references:\n", doc)
+			for _, f := range files {
+				fmt.Fprintf(&buf, "    - %s (add: // %s %s)\n", f, tag, doc)
+			}
+		}
+		buf.WriteString("\n")
+	}
+
 	buf.WriteString("Summary:\n")
 	fmt.Fprintf(&buf, "  Documented: %d/%d files (%.1f%%)\n",
 		report.Summary.DocumentedFiles,
 		report.Summary.TotalFiles,
 		report.Summary.CoveragePercent)
 	fmt.Fprintf(&buf, "  Stale docs: %d/%d\n", report.Summary.StaleDocs, report.Summary.TotalDocs)
+	if report.Summary.UndocumentedRefs > 0 {
+		fmt.Fprintf(&buf, "  Undocumented refs: %d\n", report.Summary.UndocumentedRefs)
+	}
 
 	return buf.Bytes(), nil
 }
@@ -130,6 +161,39 @@ func (h *HumanFormatter) formatOrphanedOnly(report *Report) ([]byte, error) {
 	fmt.Fprintf(&buf, "Orphaned Files (no %s): %d\n\n", tag, len(report.OrphanedFiles))
 	for _, file := range report.OrphanedFiles {
 		fmt.Fprintf(&buf, "  %s\n", file)
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (h *HumanFormatter) formatUndocumentedOnly(report *Report) ([]byte, error) {
+	var buf bytes.Buffer
+
+	if len(report.UndocumentedRefs) == 0 {
+		buf.WriteString("No undocumented references. All file references in docs have back-links.\n")
+		return buf.Bytes(), nil
+	}
+
+	tag := h.Tag
+	if tag == "" {
+		tag = "@doc"
+	}
+
+	buf.WriteString("UNDOCUMENTED REFERENCES (docs reference files without back-link):\n\n")
+
+	byDoc := make(map[string][]string)
+	for _, ref := range report.UndocumentedRefs {
+		byDoc[ref.DocPath] = append(byDoc[ref.DocPath], ref.SourceFile)
+	}
+
+	docs := sortedKeys(byDoc)
+	for _, doc := range docs {
+		files := byDoc[doc]
+		fmt.Fprintf(&buf, "  %s references:\n", doc)
+		for _, f := range files {
+			fmt.Fprintf(&buf, "    - %s (add: // %s %s)\n", f, tag, doc)
+		}
+		buf.WriteString("\n")
 	}
 
 	return buf.Bytes(), nil

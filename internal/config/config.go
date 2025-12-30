@@ -25,8 +25,9 @@ type LanguageConfig struct {
 }
 
 type CIConfig struct {
-	FailOnStale    bool `yaml:"fail_on_stale" json:"fail_on_stale"`
-	FailOnOrphaned bool `yaml:"fail_on_orphaned" json:"fail_on_orphaned"`
+	FailOnStale            bool `yaml:"fail_on_stale" json:"fail_on_stale"`
+	FailOnOrphaned         bool `yaml:"fail_on_orphaned" json:"fail_on_orphaned"`
+	FailOnUndocumentedRefs bool `yaml:"fail_on_undocumented_refs" json:"fail_on_undocumented_refs"`
 }
 
 func (lc *LanguageConfig) IsEnabled() bool {

@@ -68,13 +68,18 @@ func TestSARIFFormatter_Format(t *testing.T) {
 		}
 
 		rules := driver["rules"].([]interface{})
-		if len(rules) != 1 {
-			t.Fatalf("Should have 1 rule, got %d", len(rules))
+		if len(rules) != 2 {
+			t.Fatalf("Should have 2 rules, got %d", len(rules))
 		}
 
 		rule := rules[0].(map[string]interface{})
 		if rule["id"] != "stale-doc" {
-			t.Errorf("rule id = %v, want stale-doc", rule["id"])
+			t.Errorf("rule[0] id = %v, want stale-doc", rule["id"])
+		}
+
+		rule2 := rules[1].(map[string]interface{})
+		if rule2["id"] != "undocumented-ref" {
+			t.Errorf("rule[1] id = %v, want undocumented-ref", rule2["id"])
 		}
 	})
 

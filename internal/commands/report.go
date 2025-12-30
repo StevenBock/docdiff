@@ -14,16 +14,18 @@ import (
 )
 
 var (
-	ErrStaleDocsFound    = errors.New("stale documentation found")
-	ErrOrphanedFilesFound = errors.New("orphaned files found")
+	ErrStaleDocsFound         = errors.New("stale documentation found")
+	ErrOrphanedFilesFound     = errors.New("orphaned files found")
+	ErrUndocumentedRefsFound  = errors.New("undocumented references found")
 )
 
 var (
-	reportStale    bool
-	reportOrphaned bool
-	reportJSON     bool
-	reportSARIF    bool
-	reportCI       bool
+	reportStale        bool
+	reportOrphaned     bool
+	reportUndocumented bool
+	reportJSON         bool
+	reportSARIF        bool
+	reportCI           bool
 )
 
 var reportCmd = &cobra.Command{
@@ -39,6 +41,7 @@ orphaned files, and summary statistics.`,
 func init() {
 	reportCmd.Flags().BoolVar(&reportStale, "stale", false, "only show stale docs")
 	reportCmd.Flags().BoolVar(&reportOrphaned, "orphaned", false, "only show orphaned files")
+	reportCmd.Flags().BoolVar(&reportUndocumented, "undocumented", false, "only show undocumented references")
 	reportCmd.Flags().BoolVar(&reportJSON, "json", false, "output as JSON")
 	reportCmd.Flags().BoolVar(&reportSARIF, "sarif", false, "output as SARIF for CI integration")
 	reportCmd.Flags().BoolVar(&reportCI, "ci", false, "enable CI mode (exit 1 on stale docs)")
@@ -96,6 +99,7 @@ func runReport(cmd *cobra.Command, args []string) error {
 	rpt.StaleDocs = staleDocs
 	rpt.FilesByDoc = scanResult.FilesByDoc
 	rpt.OrphanedFiles = scanResult.OrphanedFiles()
+	rpt.UndocumentedRefs = scanResult.UndocumentedRefs
 	rpt.CalculateSummary(len(scanResult.AllFiles), len(scanResult.Annotations))
 
 	var formatter report.Formatter
@@ -106,9 +110,10 @@ func runReport(cmd *cobra.Command, args []string) error {
 		formatter = &report.SARIFFormatter{}
 	default:
 		formatter = &report.HumanFormatter{
-			ShowStaleOnly:    reportStale,
-			ShowOrphanedOnly: reportOrphaned,
-			Tag:              cfg.AnnotationTag,
+			ShowStaleOnly:        reportStale,
+			ShowOrphanedOnly:     reportOrphaned,
+			ShowUndocumentedOnly: reportUndocumented,
+			Tag:                  cfg.AnnotationTag,
 		}
 	}
 
@@ -125,6 +130,9 @@ func runReport(cmd *cobra.Command, args []string) error {
 		}
 		if cfg.CI.FailOnOrphaned && len(rpt.OrphanedFiles) > 0 {
 			return ErrOrphanedFilesFound
+		}
+		if cfg.CI.FailOnUndocumentedRefs && len(rpt.UndocumentedRefs) > 0 {
+			return ErrUndocumentedRefsFound
 		}
 	}
 

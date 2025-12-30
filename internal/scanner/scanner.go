@@ -5,10 +5,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/StevenBock/docdiff/internal/config"
+	"github.com/StevenBock/docdiff/internal/docparse"
 	"github.com/StevenBock/docdiff/internal/filetype"
 	"github.com/StevenBock/docdiff/internal/language"
 )
@@ -16,12 +18,14 @@ import (
 type Scanner struct {
 	config   *config.Config
 	detector *filetype.Detector
+	registry *language.Registry
 }
 
 func New(cfg *config.Config, registry *language.Registry) *Scanner {
 	return &Scanner{
 		config:   cfg,
 		detector: filetype.NewDetector(registry),
+		registry: registry,
 	}
 }
 
@@ -77,7 +81,15 @@ func (s *Scanner) Scan(rootDir string) (*Result, error) {
 		return nil
 	})
 
-	return result, err
+	if err != nil {
+		return result, err
+	}
+
+	if err := s.scanDocsForRefs(rootDir, result); err != nil {
+		log.Printf("Warning: failed to scan docs for references: %v", err)
+	}
+
+	return result, nil
 }
 
 func (s *Scanner) isExcluded(relPath string) bool {
@@ -106,4 +118,63 @@ func (s *Scanner) isIncluded(relPath string) bool {
 		}
 	}
 	return false
+}
+
+func (s *Scanner) scanDocsForRefs(rootDir string, result *Result) error {
+	docsDir := s.config.DocsPath(rootDir)
+
+	if _, err := os.Stat(docsDir); os.IsNotExist(err) {
+		return nil
+	}
+
+	extensions := s.registry.AllExtensions()
+	parser := docparse.New(result.AllFiles, extensions)
+
+	filesWithDocToThis := make(map[string]map[string]bool)
+	for doc, files := range result.FilesByDoc {
+		for _, f := range files {
+			if filesWithDocToThis[doc] == nil {
+				filesWithDocToThis[doc] = make(map[string]bool)
+			}
+			filesWithDocToThis[doc][f] = true
+		}
+	}
+
+	return filepath.WalkDir(docsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".md" && ext != ".markdown" {
+			return nil
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+
+		relDocPath, err := filepath.Rel(rootDir, path)
+		if err != nil {
+			return nil
+		}
+		relDocPath = filepath.ToSlash(relDocPath)
+
+		refs := parser.Parse(content)
+		linkedFiles := filesWithDocToThis[relDocPath]
+
+		for _, ref := range refs {
+			if linkedFiles != nil && linkedFiles[ref.Path] {
+				continue
+			}
+			result.AddUndocumentedRef(relDocPath, ref.Path, ref.Line)
+		}
+
+		return nil
+	})
 }

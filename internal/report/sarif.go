@@ -89,6 +89,13 @@ func (s *SARIFFormatter) Format(report *Report) ([]byte, error) {
 							FullDescription:  sarifDescription{Text: "The source code referenced by this documentation has changed since the doc was last updated."},
 							DefaultConfig:    sarifConfig{Level: "warning"},
 						},
+						{
+							ID:               "undocumented-ref",
+							Name:             "Undocumented Reference",
+							ShortDescription: sarifDescription{Text: "File referenced in docs lacks annotation"},
+							FullDescription:  sarifDescription{Text: "A documentation file references a source file that does not have an @doc annotation pointing back to the documentation."},
+							DefaultConfig:    sarifConfig{Level: "note"},
+						},
 					},
 				},
 			},
@@ -114,6 +121,24 @@ func (s *SARIFFormatter) Format(report *Report) ([]byte, error) {
 				PhysicalLocation: sarifPhysicalLocation{
 					ArtifactLocation: sarifArtifactLocation{
 						URI: docPath,
+					},
+				},
+			}},
+		}
+		sarif.Runs[0].Results = append(sarif.Runs[0].Results, result)
+	}
+
+	for _, ref := range report.UndocumentedRefs {
+		result := sarifResult{
+			RuleID: "undocumented-ref",
+			Message: sarifDescription{
+				Text: fmt.Sprintf("Documentation '%s' references '%s' but this file has no @doc annotation pointing back.",
+					ref.DocPath, ref.SourceFile),
+			},
+			Locations: []sarifLocation{{
+				PhysicalLocation: sarifPhysicalLocation{
+					ArtifactLocation: sarifArtifactLocation{
+						URI: ref.DocPath,
 					},
 				},
 			}},

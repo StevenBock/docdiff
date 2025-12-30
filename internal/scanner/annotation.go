@@ -6,19 +6,27 @@ type Annotation struct {
 	Language string
 }
 
+type UndocumentedRef struct {
+	DocPath    string
+	SourceFile string
+	Line       int
+}
+
 type Result struct {
-	Annotations map[string]*Annotation
-	FilesByDoc  map[string][]string
-	AllFiles    []string
-	Errors      []error
+	Annotations      map[string]*Annotation
+	FilesByDoc       map[string][]string
+	AllFiles         []string
+	Errors           []error
+	UndocumentedRefs []UndocumentedRef
 }
 
 func NewResult() *Result {
 	return &Result{
-		Annotations: make(map[string]*Annotation),
-		FilesByDoc:  make(map[string][]string),
-		AllFiles:    make([]string, 0),
-		Errors:      make([]error, 0),
+		Annotations:      make(map[string]*Annotation),
+		FilesByDoc:       make(map[string][]string),
+		AllFiles:         make([]string, 0),
+		Errors:           make([]error, 0),
+		UndocumentedRefs: make([]UndocumentedRef, 0),
 	}
 }
 
@@ -50,4 +58,12 @@ func (r *Result) OrphanedFiles() []string {
 		}
 	}
 	return orphaned
+}
+
+func (r *Result) AddUndocumentedRef(docPath, sourceFile string, line int) {
+	r.UndocumentedRefs = append(r.UndocumentedRefs, UndocumentedRef{
+		DocPath:    docPath,
+		SourceFile: sourceFile,
+		Line:       line,
+	})
 }
