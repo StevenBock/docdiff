@@ -108,6 +108,15 @@ func (h *HumanFormatter) formatFull(report *Report) ([]byte, error) {
 		buf.WriteString("\n")
 	}
 
+	if len(report.DirectoryCoverage) > 0 {
+		buf.WriteString("Coverage by Directory:\n")
+		for _, dc := range report.DirectoryCoverage {
+			fmt.Fprintf(&buf, "  %-20s %5.1f%% (%d/%d files)\n",
+				dc.Path, dc.CoveragePercent, dc.DocumentedFiles, dc.TotalFiles)
+		}
+		buf.WriteString("\n")
+	}
+
 	buf.WriteString("Summary:\n")
 	fmt.Fprintf(&buf, "  Documented: %d/%d files (%.1f%%)\n",
 		report.Summary.DocumentedFiles,

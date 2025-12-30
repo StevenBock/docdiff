@@ -26,6 +26,7 @@ var (
 	reportJSON         bool
 	reportSARIF        bool
 	reportCI           bool
+	reportDepth        int
 )
 
 var reportCmd = &cobra.Command{
@@ -45,6 +46,7 @@ func init() {
 	reportCmd.Flags().BoolVar(&reportJSON, "json", false, "output as JSON")
 	reportCmd.Flags().BoolVar(&reportSARIF, "sarif", false, "output as SARIF for CI integration")
 	reportCmd.Flags().BoolVar(&reportCI, "ci", false, "enable CI mode (exit 1 on stale docs)")
+	reportCmd.Flags().IntVar(&reportDepth, "depth", 1, "directory depth for coverage breakdown (0 = disable)")
 	rootCmd.AddCommand(reportCmd)
 }
 
@@ -101,6 +103,14 @@ func runReport(cmd *cobra.Command, args []string) error {
 	rpt.OrphanedFiles = scanResult.OrphanedFiles()
 	rpt.UndocumentedRefs = scanResult.UndocumentedRefs
 	rpt.CalculateSummary(len(scanResult.AllFiles), len(scanResult.Annotations))
+
+	if reportDepth > 0 {
+		documentedFiles := make(map[string]bool)
+		for file := range scanResult.Annotations {
+			documentedFiles[file] = true
+		}
+		rpt.CalculateDirectoryCoverage(scanResult.AllFiles, documentedFiles, reportDepth)
+	}
 
 	var formatter report.Formatter
 	switch {
