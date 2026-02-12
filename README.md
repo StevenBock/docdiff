@@ -119,6 +119,30 @@ docdiff sync [doc]
 
 Without arguments, syncs all docs to current HEAD. With a doc path, syncs only that doc.
 
+### `docdiff graph`
+
+Output a graph showing relationships between documentation and source files.
+
+```bash
+docdiff graph [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--mermaid` | Output in Mermaid format instead of DOT (GraphViz) |
+
+Stale documentation relationships are highlighted in red.
+
+### `docdiff onboard`
+
+Print comprehensive docdiff usage instructions for AI agents.
+
+```bash
+docdiff onboard
+```
+
+Outputs usage instructions and a ready-to-paste snippet for agent instruction files (CLAUDE.md, .github/copilot-instructions.md, .cursorrules, .windsurfrules, AGENTS.md). Works without any project setup — no config file or git repository needed.
+
 ## Configuration
 
 Create `.docdiff.yaml` in your project root:
@@ -168,8 +192,11 @@ Also supports `.docdiff.json`.
 | Java | `.java` | `//`, `/* */`, `/** */` |
 | JavaScript | `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs` | `//`, `/* */` |
 | PHP | `.php` | `//`, `#`, `/* */`, `/** */` |
+| PowerShell | `.ps1`, `.psm1`, `.psd1` | `#`, `<# #>` |
 | Python | `.py` | `#`, `"""`, `'''` |
 | Ruby | `.rb`, `.rake` | `#`, `=begin/=end` |
+| Shell | `.sh`, `.bash`, `.zsh`, `.ksh` | `#` |
+| Vue | `.vue` | `//`, `/* */`, `<!-- -->` |
 
 ### Intelligent File Type Detection
 

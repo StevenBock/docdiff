@@ -359,6 +359,79 @@ func Handler() { /* modified */ }
 	}
 }
 
+func TestOnboard_Output(t *testing.T) {
+	var stdout bytes.Buffer
+	onboardCmd.SetOut(&stdout)
+
+	err := onboardCmd.RunE(onboardCmd, nil)
+	if err != nil {
+		t.Fatalf("onboard failed: %v", err)
+	}
+
+	output := stdout.String()
+
+	// Verify key commands are mentioned
+	for _, want := range []string{
+		"docdiff init",
+		"docdiff report",
+		"docdiff changes",
+		"docdiff sync",
+		"docdiff graph",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("onboard output should mention %q", want)
+		}
+	}
+
+	// Verify agent instruction file names are mentioned
+	for _, want := range []string{
+		"CLAUDE.md",
+		".github/copilot-instructions.md",
+		".cursorrules",
+		".windsurfrules",
+		"AGENTS.md",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("onboard output should mention agent file %q", want)
+		}
+	}
+
+	// Verify delimiters are present
+	if !strings.Contains(output, "START DOCDIFF INSTRUCTIONS") {
+		t.Error("onboard output should contain START marker")
+	}
+	if !strings.Contains(output, "END DOCDIFF INSTRUCTIONS") {
+		t.Error("onboard output should contain END marker")
+	}
+}
+
+func TestOnboard_NoPersistentPreRun(t *testing.T) {
+	// Clear global state to verify the command works without project setup
+	origDir := rootDir
+	origCfg := cfg
+	origRegistry := registry
+	rootDir = ""
+	cfg = nil
+	registry = nil
+	defer func() {
+		rootDir = origDir
+		cfg = origCfg
+		registry = origRegistry
+	}()
+
+	var stdout bytes.Buffer
+	onboardCmd.SetOut(&stdout)
+
+	err := onboardCmd.RunE(onboardCmd, nil)
+	if err != nil {
+		t.Fatalf("onboard should work without project setup: %v", err)
+	}
+
+	if stdout.Len() == 0 {
+		t.Error("onboard should produce output even without project setup")
+	}
+}
+
 func TestIsCI(t *testing.T) {
 	originalCI, ciSet := os.LookupEnv("CI")
 	originalGHA, ghaSet := os.LookupEnv("GITHUB_ACTIONS")
