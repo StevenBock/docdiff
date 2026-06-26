@@ -89,6 +89,8 @@ var modelineMap = map[string]string{
 	"php":        "php",
 	"go":         "go",
 	"golang":     "go",
+	"rust":       "rust",
+	"rs":         "rust",
 	"java":       "java",
 	"shell":      "shell",
 	"bash":       "shell",

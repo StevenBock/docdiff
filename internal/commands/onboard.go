@@ -75,7 +75,7 @@ docdiff reads ` + "`.docdiff.yaml`" + ` or ` + "`.docdiff.json`" + ` from the pr
 
 ## Supported Languages
 
-Go, Java, PHP, Python, JavaScript/TypeScript, Ruby, Vue, Shell/Bash, and PowerShell.
+Go, Rust, Java, PHP, Python, JavaScript/TypeScript, Ruby, Vue, Shell/Bash, and PowerShell.
 
 ## Typical Workflow
 

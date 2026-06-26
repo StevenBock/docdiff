@@ -2,3 +2,7 @@
 *.iml
 bin
 /docdiff
+
+# Local dev tooling (Hangar)
+.mcp.json
+hangar.yml

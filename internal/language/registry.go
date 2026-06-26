@@ -19,6 +19,7 @@ func DefaultRegistry() *Registry {
 	r := NewRegistry()
 	r.Register(NewPHPStrategy())
 	r.Register(NewGoStrategy())
+	r.Register(NewRustStrategy())
 	r.Register(NewJavaStrategy())
 	r.Register(NewPythonStrategy())
 	r.Register(NewJavaScriptStrategy())

@@ -189,6 +189,7 @@ Also supports `.docdiff.json`.
 | Language | Extensions | Comment Styles |
 |----------|------------|----------------|
 | Go | `.go` | `//`, `/* */` |
+| Rust | `.rs` | `//`, `/* */`, `///`, `//!`, `/** */` |
 | Java | `.java` | `//`, `/* */`, `/** */` |
 | JavaScript | `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs` | `//`, `/* */` |
 | PHP | `.php` | `//`, `#`, `/* */`, `/** */` |
