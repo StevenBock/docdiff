@@ -1,9 +1,5 @@
 # CLAUDE.md
 
-**Note**: This project uses [bd (beads)](https://github.com/steveyegge/beads)
-for issue tracking. Use `bd` commands instead of markdown TODOs.
-See AGENTS.md for workflow details.
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -61,9 +57,10 @@ The `internal/language` package uses a strategy pattern for extensibility:
 ### Commands
 
 - `init` - Create metadata file with current HEAD hashes
-- `report` - Show stale/orphaned docs (supports `--json`, `--sarif`, `--ci`)
-- `changes <doc>` - Show code changes since doc updated (`--ai` for LLM-friendly output)
-- `sync [doc]` - Update metadata after doc review
+- `check` - Show only docs affected by the current working tree / staged / `--files` set; exits non-zero when an affected doc needs updating (`--json`). The agent-focused command.
+- `report` - Show repo-wide stale/orphaned docs (supports `--json`, `--sarif`, `--ci`)
+- `changes <doc>` - Show code changes since doc updated (`--ai`, `--working-tree`, `--staged`)
+- `sync [doc]` - Update metadata after doc review (`--to <ref>` targets a specific commit; run after committing)
 
 ## Configuration
 

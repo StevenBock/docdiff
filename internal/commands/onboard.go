@@ -58,9 +58,10 @@ reports it as stale.
 ## Key Commands
 
 - ` + "`docdiff init`" + `       — Initialize documentation version tracking (creates metadata file)
-- ` + "`docdiff report`" + `     — Show stale and orphaned docs (supports --json, --sarif, --ci)
-- ` + "`docdiff changes <doc>`" + ` — Show code changes since a doc was last updated (--ai for LLM-friendly output)
-- ` + "`docdiff sync [doc]`" + `  — Update metadata after reviewing/updating docs
+- ` + "`docdiff check`" + `      — Show ONLY docs affected by your current changes (--staged, --files, --json). Exits non-zero if an affected doc needs updating. Best command for focused agent work.
+- ` + "`docdiff report`" + `     — Full repo-wide stale/orphaned report (supports --json, --sarif, --ci)
+- ` + "`docdiff changes <doc>`" + ` — Show code changes since a doc was last updated (--ai, --working-tree, --staged)
+- ` + "`docdiff sync [doc]`" + `  — Update metadata after reviewing/updating docs (--to <ref> to target a specific commit)
 - ` + "`docdiff graph`" + `      — Output doc-to-file relationship graph (DOT or --mermaid)
 - ` + "`docdiff onboard`" + `    — Print these instructions
 
@@ -102,10 +103,10 @@ This project uses docdiff to track documentation freshness. Source files contain
 ` + "`@doc`" + ` annotations (e.g. ` + "`// @doc docs/API.md`" + `) that link code to documentation.
 
 ### When modifying code with @doc annotations:
-- Run ` + "`docdiff report`" + ` to check for stale docs
-- Run ` + "`docdiff changes <doc>`" + ` to see what code changed since the doc was last reviewed
-- Update the linked documentation to reflect your code changes
-- Run ` + "`docdiff sync`" + ` to mark the documentation as up-to-date
+- Run ` + "`docdiff check`" + ` to see ONLY the docs affected by your current (uncommitted) changes, ignoring unrelated stale docs elsewhere in the repo. Exit code is non-zero while an affected doc still needs updating.
+- Run ` + "`docdiff changes <doc> --working-tree`" + ` to see exactly what changed (including uncommitted edits) in files linked to that doc.
+- Update the linked documentation to reflect your code changes.
+- Commit the code and doc together, then run ` + "`docdiff sync <doc> --to HEAD`" + ` to mark the doc as reviewed at the new commit. Sync records a commit hash, so it must run AFTER committing — syncing before commit records the old HEAD and the doc looks stale again immediately.
 
 ### When adding new code:
 - Add ` + "`@doc`" + ` annotations linking to the relevant documentation file

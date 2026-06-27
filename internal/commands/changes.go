@@ -15,9 +15,11 @@ import (
 )
 
 var (
-	changesCommits bool
-	changesSummary bool
-	changesAI      bool
+	changesCommits  bool
+	changesSummary  bool
+	changesAI       bool
+	changesStaged   bool
+	changesWorkTree bool
 )
 
 var changesCmd = &cobra.Command{
@@ -34,6 +36,8 @@ func init() {
 	changesCmd.Flags().BoolVar(&changesCommits, "commits", false, "show commit list only")
 	changesCmd.Flags().BoolVar(&changesSummary, "summary", false, "output summary format")
 	changesCmd.Flags().BoolVar(&changesAI, "ai", false, "output format optimized for AI documentation updates")
+	changesCmd.Flags().BoolVar(&changesWorkTree, "working-tree", false, "diff against the working tree (include uncommitted changes)")
+	changesCmd.Flags().BoolVar(&changesStaged, "staged", false, "diff against the index (staged changes only)")
 	rootCmd.AddCommand(changesCmd)
 }
 
@@ -71,6 +75,10 @@ func runChanges(cmd *cobra.Command, args []string) error {
 	}
 
 	g := git.New(rootDir)
+
+	if changesWorkTree || changesStaged {
+		return outputWorkTree(out, g, doc, lastHash, files, changesStaged)
+	}
 
 	if changesAI {
 		return outputAI(out, g, doc, lastHash, files)
@@ -115,6 +123,37 @@ func outputDefault(out io.Writer, g *git.Git, doc, lastHash string, files []stri
 
 	fmt.Fprintln(out, "--- Diff ---")
 	diff, _ := g.Diff(lastHash, "HEAD", files)
+	fmt.Fprintln(out, diff)
+
+	return nil
+}
+
+func outputWorkTree(out io.Writer, g *git.Git, doc, lastHash string, files []string, staged bool) error {
+	lastCommitInfo, _ := g.CommitInfo(lastHash)
+	scope := "working tree"
+	if staged {
+		scope = "staged changes"
+	}
+
+	fmt.Fprintf(out, "Changes to %s files since %s (including %s)\n", doc, lastCommitInfo, scope)
+	fmt.Fprintln(out, strings.Repeat("=", 60))
+	fmt.Fprintln(out)
+
+	changed, _ := g.ChangedFilesSince(lastHash, staged, files)
+	fmt.Fprintf(out, "Files changed: %d\n\n", len(changed))
+
+	if len(changed) == 0 {
+		fmt.Fprintf(out, "No %s changes to %s files since the doc was last synced.\n", scope, doc)
+		return nil
+	}
+
+	for _, f := range changed {
+		fmt.Fprintf(out, "  %s\n", f)
+	}
+	fmt.Fprintln(out)
+
+	fmt.Fprintln(out, "--- Diff ---")
+	diff, _ := g.DiffSince(lastHash, staged, files)
 	fmt.Fprintln(out, diff)
 
 	return nil

@@ -432,6 +432,52 @@ func TestOnboard_NoPersistentPreRun(t *testing.T) {
 	}
 }
 
+func TestCheck_WorkingTree(t *testing.T) {
+	dir := setupTestProject(t)
+
+	initTestEnv(t, dir)
+	initCmd.RunE(initCmd, nil)
+
+	// Modify a source file linked to docs/API.md, but leave it uncommitted.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() {
+    // uncommitted change
+}
+`), 0644)
+
+	initTestEnv(t, dir)
+	checkStaged = false
+	checkJSON = false
+	checkFiles = nil
+	defer func() { checkFiles = nil }()
+
+	var stdout bytes.Buffer
+	checkCmd.SetOut(&stdout)
+
+	err := checkCmd.RunE(checkCmd, nil)
+	if err == nil {
+		t.Error("check should fail when a linked doc needs updating")
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "docs/API.md: needs update") {
+		t.Errorf("expected API.md to need update, got:\n%s", out)
+	}
+
+	// Now also edit the doc itself: it should count as "updated" and pass.
+	os.WriteFile(filepath.Join(dir, "docs", "API.md"), []byte("# API Docs\n\nupdated\n"), 0644)
+
+	stdout.Reset()
+	err = checkCmd.RunE(checkCmd, nil)
+	if err != nil {
+		t.Errorf("check should pass when the doc was also edited, got: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "docs/API.md: updated") {
+		t.Errorf("expected API.md to be marked updated, got:\n%s", stdout.String())
+	}
+}
+
 func TestIsCI(t *testing.T) {
 	originalCI, ciSet := os.LookupEnv("CI")
 	originalGHA, ghaSet := os.LookupEnv("GITHUB_ACTIONS")

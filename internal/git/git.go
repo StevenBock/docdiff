@@ -39,6 +39,43 @@ func (g *Git) HeadShort() (string, error) {
 	return g.run("rev-parse", "--short", "HEAD")
 }
 
+// ResolveShort resolves any ref (HEAD, a branch, a sha) to its short hash.
+func (g *Git) ResolveShort(ref string) (string, error) {
+	return g.run("rev-parse", "--short", ref)
+}
+
+// WorkingTreeFiles returns files changed in the working tree relative to HEAD,
+// including staged, unstaged, and untracked (non-ignored) files.
+func (g *Git) WorkingTreeFiles() ([]string, error) {
+	tracked, err := g.run("diff", "--name-only", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	untracked, err := g.run("ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool)
+	var files []string
+	for _, line := range append(splitNonEmpty(tracked), splitNonEmpty(untracked)...) {
+		if !seen[line] {
+			seen[line] = true
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
+// StagedFiles returns files staged in the index relative to HEAD.
+func (g *Git) StagedFiles() ([]string, error) {
+	out, err := g.run("diff", "--name-only", "--cached")
+	if err != nil {
+		return nil, err
+	}
+	return splitNonEmpty(out), nil
+}
+
 func (g *Git) HeadFull() (string, error) {
 	return g.run("rev-parse", "HEAD")
 }
@@ -136,6 +173,41 @@ func (g *Git) Diff(fromHash, toHash string, files []string) (string, error) {
 	return g.run(args...)
 }
 
+// ChangedFilesSince returns files (optionally filtered) that differ between
+// fromHash and the working tree, or the index when staged is true.
+func (g *Git) ChangedFilesSince(fromHash string, staged bool, files []string) ([]string, error) {
+	args := []string{"diff", "--name-only"}
+	if staged {
+		args = append(args, "--cached")
+	}
+	args = append(args, fromHash)
+	if len(files) > 0 {
+		args = append(args, "--")
+		args = append(args, files...)
+	}
+
+	output, err := g.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	return splitNonEmpty(output), nil
+}
+
+// DiffSince diffs fromHash against the working tree, or the index when staged.
+func (g *Git) DiffSince(fromHash string, staged bool, files []string) (string, error) {
+	args := []string{"diff"}
+	if staged {
+		args = append(args, "--cached")
+	}
+	args = append(args, fromHash)
+	if len(files) > 0 {
+		args = append(args, "--")
+		args = append(args, files...)
+	}
+
+	return g.run(args...)
+}
+
 func (g *Git) ShowCommitDiff(hash string, files []string) (string, error) {
 	args := []string{"show", "--format=", hash}
 	if len(files) > 0 {
@@ -183,4 +255,11 @@ type CommitDetail struct {
 	Hash    string
 	Short   string
 	Subject string
+}
+
+func splitNonEmpty(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
 }

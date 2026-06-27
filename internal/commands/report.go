@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	ErrStaleDocsFound         = errors.New("stale documentation found")
-	ErrOrphanedFilesFound     = errors.New("orphaned files found")
-	ErrUndocumentedRefsFound  = errors.New("undocumented references found")
+	ErrStaleDocsFound        = errors.New("stale documentation found")
+	ErrOrphanedFilesFound    = errors.New("orphaned files found")
+	ErrUndocumentedRefsFound = errors.New("undocumented references found")
 )
 
 var (
@@ -70,31 +70,7 @@ func runReport(cmd *cobra.Command, args []string) error {
 	}
 
 	g := git.New(rootDir)
-	staleDocs := make(map[string]*report.StaleDoc)
-
-	for doc, lastHash := range versions {
-		files := scanResult.FilesByDoc[doc]
-		if len(files) == 0 {
-			continue
-		}
-
-		changed, err := g.ChangedFilesBetween(lastHash, "HEAD", files)
-		if err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to check changes for %s (%s..HEAD): %v\n", doc, lastHash, err)
-			continue
-		}
-
-		if len(changed) > 0 {
-			commitInfo, _ := g.CommitInfo(lastHash)
-			staleDocs[doc] = &report.StaleDoc{
-				Path:           doc,
-				LastHash:       lastHash,
-				LastCommitInfo: commitInfo,
-				FilesChanged:   len(changed),
-				ChangedFiles:   changed,
-			}
-		}
-	}
+	staleDocs := computeStaleDocs(g, versions, scanResult.FilesByDoc, cmd.ErrOrStderr())
 
 	rpt := report.NewReport()
 	rpt.Metadata = versions

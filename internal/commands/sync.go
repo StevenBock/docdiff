@@ -10,18 +10,29 @@ import (
 	"github.com/StevenBock/docdiff/internal/metadata"
 )
 
+var syncTo string
+
 var syncCmd = &cobra.Command{
 	Use:   "sync [doc]",
-	Short: "Update documentation version metadata to current HEAD",
+	Short: "Update documentation version metadata to a commit",
 	Long: `Update documentation version metadata after reviewing and updating docs.
 
 Without arguments, updates all docs to current HEAD.
-With a doc path argument, updates only that specific doc.`,
+With a doc path argument, updates only that specific doc.
+
+Sync records a commit hash, so it must run after the code/doc commit exists.
+The clean pre-commit flow is to commit first, then:
+
+  docdiff sync <doc> --to HEAD
+
+Use --to to point at any ref (HEAD, a branch, or an explicit sha) instead of
+the current HEAD.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSync,
 }
 
 func init() {
+	syncCmd.Flags().StringVar(&syncTo, "to", "", "ref to sync to (HEAD, branch, or sha); default current HEAD")
 	rootCmd.AddCommand(syncCmd)
 }
 
@@ -39,18 +50,23 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	g := git.New(rootDir)
-	currentHead, err := g.HeadShort()
+
+	target := syncTo
+	if target == "" {
+		target = "HEAD"
+	}
+	resolved, err := g.ResolveShort(target)
 	if err != nil {
-		return fmt.Errorf("failed to get HEAD: %w", err)
+		return fmt.Errorf("failed to resolve %q: %w", target, err)
 	}
 
 	out := cmd.OutOrStdout()
 
 	if len(args) == 1 {
-		return syncSingleDoc(out, meta, versions, args[0], currentHead)
+		return syncSingleDoc(out, meta, versions, args[0], resolved)
 	}
 
-	return syncAllDocs(out, meta, versions, currentHead)
+	return syncAllDocs(out, meta, versions, resolved)
 }
 
 func syncSingleDoc(out io.Writer, meta *metadata.Manager, versions metadata.DocVersions, doc, currentHead string) error {
@@ -77,7 +93,7 @@ func syncAllDocs(out io.Writer, meta *metadata.Manager, versions metadata.DocVer
 	updated := 0
 	skipped := 0
 
-	fmt.Fprintf(out, "Syncing all docs to HEAD (%s)...\n\n", currentHead)
+	fmt.Fprintf(out, "Syncing all docs to %s...\n\n", currentHead)
 
 	for _, doc := range versions.SortedDocs() {
 		oldHash := versions[doc]
