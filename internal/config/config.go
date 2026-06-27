@@ -9,13 +9,23 @@ import (
 )
 
 type Config struct {
-	AnnotationTag string                    `yaml:"annotation_tag" json:"annotation_tag"`
-	DocsDirectory string                    `yaml:"docs_directory" json:"docs_directory"`
-	MetadataFile  string                    `yaml:"metadata_file" json:"metadata_file"`
-	Include       []string                  `yaml:"include" json:"include"`
-	Exclude       []string                  `yaml:"exclude" json:"exclude"`
-	Languages     map[string]LanguageConfig `yaml:"languages" json:"languages"`
-	CI            CIConfig                  `yaml:"ci" json:"ci"`
+	AnnotationTag    string                    `yaml:"annotation_tag" json:"annotation_tag"`
+	DocsDirectory    string                    `yaml:"docs_directory" json:"docs_directory"`
+	MetadataFile     string                    `yaml:"metadata_file" json:"metadata_file"`
+	Include          []string                  `yaml:"include" json:"include"`
+	Exclude          []string                  `yaml:"exclude" json:"exclude"`
+	RespectGitignore *bool                     `yaml:"respect_gitignore" json:"respect_gitignore"`
+	Languages        map[string]LanguageConfig `yaml:"languages" json:"languages"`
+	CI               CIConfig                  `yaml:"ci" json:"ci"`
+}
+
+// GitignoreRespected reports whether gitignored files should be skipped during
+// scanning. Defaults to true when unset.
+func (c *Config) GitignoreRespected() bool {
+	if c.RespectGitignore == nil {
+		return true
+	}
+	return *c.RespectGitignore
 }
 
 type LanguageConfig struct {

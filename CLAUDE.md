@@ -57,14 +57,18 @@ The `internal/language` package uses a strategy pattern for extensibility:
 ### Commands
 
 - `init` - Create metadata file with current HEAD hashes
-- `check` - Show only docs affected by the current working tree / staged / `--files` set; exits non-zero when an affected doc needs updating (`--json`). The agent-focused command.
+- `check` - Show only docs affected by the current working tree / staged / `--files` set; exits non-zero when an affected doc needs updating (`--json`). Also surfaces missing back-links (undocumented refs) for affected docs. The agent-focused command.
 - `report` - Show repo-wide stale/orphaned docs (supports `--json`, `--sarif`, `--ci`)
-- `changes <doc>` - Show code changes since doc updated (`--ai`, `--working-tree`, `--staged`)
-- `sync [doc]` - Update metadata after doc review (`--to <ref>` targets a specific commit; run after committing)
+- `changes <doc>` - Show code changes since doc updated (`--ai`, `--working-tree`, `--staged`, `--hide-annotations` to drop annotation-only diff hunks)
+- `sync [doc]` - Update metadata after doc review (`--to <ref>` targets a specific commit; `--affected` syncs only the stale set; run after committing)
+- `suggest` - Group orphaned files by likely owning doc (directory-vote heuristic) and emit `@doc` annotation lines in batches (`--json`)
 
 ## Configuration
 
 Reads `.docdiff.yaml` or `.docdiff.json` from project root. Key settings:
 - `annotation_tag` - Customizable (default `@doc`)
-- `include/exclude` - Glob patterns for file scanning
+- `include/exclude` - Glob patterns for file scanning. A pattern without a `/` matches the basename at any depth (gitignore-like).
+- `respect_gitignore` - Skip files git ignores via `git check-ignore` (default `true`)
 - `ci.fail_on_stale` - Exit code behavior
+
+A `.docdiffignore` file (one glob per line, `#` comments) adds extra excludes on top of `exclude:` — use it for committed files git won't ignore (vendored license text, local notes).

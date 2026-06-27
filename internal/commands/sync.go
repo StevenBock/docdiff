@@ -3,14 +3,19 @@ package commands
 import (
 	"fmt"
 	"io"
+	"sort"
 
 	"github.com/spf13/cobra"
 
 	"github.com/StevenBock/docdiff/internal/git"
 	"github.com/StevenBock/docdiff/internal/metadata"
+	"github.com/StevenBock/docdiff/internal/scanner"
 )
 
-var syncTo string
+var (
+	syncTo       string
+	syncAffected bool
+)
 
 var syncCmd = &cobra.Command{
 	Use:   "sync [doc]",
@@ -33,6 +38,7 @@ the current HEAD.`,
 
 func init() {
 	syncCmd.Flags().StringVar(&syncTo, "to", "", "ref to sync to (HEAD, branch, or sha); default current HEAD")
+	syncCmd.Flags().BoolVar(&syncAffected, "affected", false, "sync only docs whose linked code changed (the stale set), not all docs")
 	rootCmd.AddCommand(syncCmd)
 }
 
@@ -62,11 +68,62 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 
+	if syncAffected {
+		return syncAffectedDocs(out, cmd.ErrOrStderr(), meta, versions, g, resolved)
+	}
+
 	if len(args) == 1 {
 		return syncSingleDoc(out, meta, versions, args[0], resolved)
 	}
 
 	return syncAllDocs(out, meta, versions, resolved)
+}
+
+// syncAffectedDocs updates only the docs whose linked source files changed
+// since their last synced hash (the set `check`/`report` flag as stale). This
+// is the post-commit "I reviewed the affected docs, record them" path.
+func syncAffectedDocs(out, errOut io.Writer, meta *metadata.Manager, versions metadata.DocVersions, g *git.Git, target string) error {
+	s := scanner.New(cfg, registry)
+	scanResult, err := s.Scan(rootDir)
+	if err != nil {
+		return fmt.Errorf("scan failed: %w", err)
+	}
+
+	stale := computeStaleDocs(g, versions, scanResult.FilesByDoc, errOut)
+	if len(stale) == 0 {
+		fmt.Fprintln(out, "No affected docs to sync (no doc's linked code changed).")
+		return nil
+	}
+
+	docs := make([]string, 0, len(stale))
+	for doc := range stale {
+		docs = append(docs, doc)
+	}
+	sort.Strings(docs)
+
+	fmt.Fprintf(out, "Syncing affected docs to %s...\n\n", target)
+	updated := 0
+	for _, doc := range docs {
+		oldHash := versions[doc]
+		if oldHash == target {
+			continue
+		}
+		versions[doc] = target
+		fmt.Fprintf(out, "  %s: %s -> %s\n", doc, oldHash, target)
+		updated++
+	}
+
+	if updated == 0 {
+		fmt.Fprintln(out, "Affected docs already current.")
+		return nil
+	}
+
+	if err := meta.Save(versions); err != nil {
+		return fmt.Errorf("failed to save metadata: %w", err)
+	}
+
+	fmt.Fprintf(out, "\nSynced %d affected doc(s) to %s.\n", updated, target)
+	return nil
 }
 
 func syncSingleDoc(out io.Writer, meta *metadata.Manager, versions metadata.DocVersions, doc, currentHead string) error {

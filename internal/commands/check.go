@@ -104,6 +104,15 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	// say how much noise we hid. Best-effort: needs the metadata file.
 	unrelatedStale := unrelatedStaleCount(g, scanResult.FilesByDoc, affected, cmd.ErrOrStderr())
 
+	// Surface missing back-links for the docs this change touches, so they're
+	// caught in the normal flow instead of a separate `report --undocumented`.
+	var undocRefs []scanner.UndocumentedRef
+	for _, ref := range scanResult.UndocumentedRefs {
+		if affected[ref.DocPath] {
+			undocRefs = append(undocRefs, ref)
+		}
+	}
+
 	needsUpdate := 0
 	for _, r := range results {
 		if r.Status == "needs update" {
@@ -113,9 +122,9 @@ func runCheck(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 	if checkJSON {
-		writeCheckJSON(out, source, results, unrelatedStale, needsUpdate)
+		writeCheckJSON(out, source, results, undocRefs, unrelatedStale, needsUpdate)
 	} else {
-		writeCheckHuman(out, source, results, unrelatedStale, needsUpdate)
+		writeCheckHuman(out, source, results, undocRefs, unrelatedStale, needsUpdate)
 	}
 
 	if needsUpdate > 0 {
@@ -167,7 +176,7 @@ func unrelatedStaleCount(g *git.Git, filesByDoc map[string][]string, affected ma
 	return count
 }
 
-func writeCheckHuman(out io.Writer, source string, results []checkResult, unrelatedStale, needsUpdate int) {
+func writeCheckHuman(out io.Writer, source string, results []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int) {
 	if len(results) == 0 {
 		fmt.Fprintf(out, "No docs are linked to your %s changes.\n", source)
 		if unrelatedStale > 0 {
@@ -187,23 +196,36 @@ func writeCheckHuman(out io.Writer, source string, results []checkResult, unrela
 	if unrelatedStale > 0 {
 		fmt.Fprintf(out, "Unrelated stale docs: %d hidden (run 'docdiff report' for the full picture).\n", unrelatedStale)
 	}
+
+	if len(undocRefs) > 0 {
+		fmt.Fprintf(out, "\nMissing back-links in affected docs (%d):\n", len(undocRefs))
+		for _, ref := range undocRefs {
+			fmt.Fprintf(out, "  %s references %s (add: %s %s)\n", ref.DocPath, ref.SourceFile, cfg.AnnotationTag, ref.DocPath)
+		}
+	}
+
 	if needsUpdate > 0 {
 		fmt.Fprintln(out, "\nNext: update the docs above, then after committing run")
-		fmt.Fprintln(out, "  docdiff sync <doc> --to HEAD")
+		fmt.Fprintln(out, "  docdiff sync --affected --to HEAD")
 	}
 }
 
-func writeCheckJSON(out io.Writer, source string, results []checkResult, unrelatedStale, needsUpdate int) {
+func writeCheckJSON(out io.Writer, source string, results []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int) {
+	if undocRefs == nil {
+		undocRefs = []scanner.UndocumentedRef{}
+	}
 	payload := struct {
-		Source         string        `json:"source"`
-		Affected       []checkResult `json:"affected"`
-		NeedsUpdate    int           `json:"needs_update"`
-		UnrelatedStale int           `json:"unrelated_stale"`
+		Source           string                    `json:"source"`
+		Affected         []checkResult             `json:"affected"`
+		UndocumentedRefs []scanner.UndocumentedRef `json:"undocumented_refs"`
+		NeedsUpdate      int                       `json:"needs_update"`
+		UnrelatedStale   int                       `json:"unrelated_stale"`
 	}{
-		Source:         source,
-		Affected:       results,
-		NeedsUpdate:    needsUpdate,
-		UnrelatedStale: unrelatedStale,
+		Source:           source,
+		Affected:         results,
+		UndocumentedRefs: undocRefs,
+		NeedsUpdate:      needsUpdate,
+		UnrelatedStale:   unrelatedStale,
 	}
 	data, _ := json.MarshalIndent(payload, "", "  ")
 	fmt.Fprintln(out, string(data))

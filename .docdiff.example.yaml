@@ -19,7 +19,14 @@ metadata_file: docs/.doc-versions.json
 #   - "lib/**"
 include: []
 
-# Glob patterns for files to exclude
+# Skip files that git ignores (via `git check-ignore`). Default: true.
+# Add a .docdiffignore file (one glob per line) for extra excludes that aren't
+# in .gitignore, e.g. committed vendored license text or local notes.
+respect_gitignore: true
+
+# Glob patterns for files to exclude.
+# A pattern with no "/" matches the basename at any depth (gitignore-like),
+# so "*.lock" or "LICENSE.txt" exclude matching files anywhere.
 exclude:
   - "vendor/**"
   - "node_modules/**"

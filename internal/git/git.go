@@ -35,6 +35,37 @@ func (g *Git) IsRepo() bool {
 	return err == nil
 }
 
+// CheckIgnore returns the subset of paths that git would ignore (respecting
+// .gitignore, .git/info/exclude, and global excludes). Paths must be relative
+// to the repo root. A clean exit with no matches is not an error.
+func (g *Git) CheckIgnore(paths []string) (map[string]bool, error) {
+	ignored := make(map[string]bool)
+	if len(paths) == 0 {
+		return ignored, nil
+	}
+
+	cmd := exec.Command("git", "check-ignore", "--stdin")
+	cmd.Dir = g.workDir
+	cmd.Stdin = strings.NewReader(strings.Join(paths, "\n") + "\n")
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// Exit code 1 means "nothing ignored", which is not a failure.
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return ignored, nil
+		}
+		return nil, fmt.Errorf("git check-ignore: %w: %s", err, stderr.String())
+	}
+
+	for _, line := range splitNonEmpty(strings.TrimSpace(stdout.String())) {
+		ignored[line] = true
+	}
+	return ignored, nil
+}
+
 func (g *Git) HeadShort() (string, error) {
 	return g.run("rev-parse", "--short", "HEAD")
 }

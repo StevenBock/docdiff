@@ -15,11 +15,12 @@ import (
 )
 
 var (
-	changesCommits  bool
-	changesSummary  bool
-	changesAI       bool
-	changesStaged   bool
-	changesWorkTree bool
+	changesCommits   bool
+	changesSummary   bool
+	changesAI        bool
+	changesStaged    bool
+	changesWorkTree  bool
+	changesHideAnnot bool
 )
 
 var changesCmd = &cobra.Command{
@@ -38,6 +39,7 @@ func init() {
 	changesCmd.Flags().BoolVar(&changesAI, "ai", false, "output format optimized for AI documentation updates")
 	changesCmd.Flags().BoolVar(&changesWorkTree, "working-tree", false, "diff against the working tree (include uncommitted changes)")
 	changesCmd.Flags().BoolVar(&changesStaged, "staged", false, "diff against the index (staged changes only)")
+	changesCmd.Flags().BoolVar(&changesHideAnnot, "hide-annotations", false, "hide diff hunks whose only changes are @doc annotation lines")
 	rootCmd.AddCommand(changesCmd)
 }
 
@@ -123,7 +125,7 @@ func outputDefault(out io.Writer, g *git.Git, doc, lastHash string, files []stri
 
 	fmt.Fprintln(out, "--- Diff ---")
 	diff, _ := g.Diff(lastHash, "HEAD", files)
-	fmt.Fprintln(out, diff)
+	fmt.Fprintln(out, maybeHideAnnotations(diff))
 
 	return nil
 }
@@ -154,7 +156,7 @@ func outputWorkTree(out io.Writer, g *git.Git, doc, lastHash string, files []str
 
 	fmt.Fprintln(out, "--- Diff ---")
 	diff, _ := g.DiffSince(lastHash, staged, files)
-	fmt.Fprintln(out, diff)
+	fmt.Fprintln(out, maybeHideAnnotations(diff))
 
 	return nil
 }
@@ -211,7 +213,8 @@ func outputSummary(out io.Writer, g *git.Git, doc, lastHash string, files []stri
 		}
 
 		diff, _ := g.ShowCommitDiff(commit.Hash, files)
-		if diff != "" {
+		diff = maybeHideAnnotations(diff)
+		if strings.TrimSpace(diff) != "" {
 			fmt.Fprintln(out, "```diff")
 			fmt.Fprintln(out, strings.TrimSpace(diff))
 			fmt.Fprintln(out, "```")
@@ -275,7 +278,8 @@ func outputAI(out io.Writer, g *git.Git, doc, lastHash string, files []string) e
 		}
 
 		diff, _ := g.ShowCommitDiff(commit.Hash, files)
-		if diff != "" {
+		diff = maybeHideAnnotations(diff)
+		if strings.TrimSpace(diff) != "" {
 			fmt.Fprintln(out, "```diff")
 			fmt.Fprintln(out, strings.TrimSpace(diff))
 			fmt.Fprintln(out, "```")

@@ -1,11 +1,13 @@
 package config
 
 func DefaultConfig() *Config {
+	respectGitignore := true
 	return &Config{
-		AnnotationTag: "@doc",
-		DocsDirectory: "docs",
-		MetadataFile:  "docs/.doc-versions.json",
-		Include:       []string{},
+		RespectGitignore: &respectGitignore,
+		AnnotationTag:    "@doc",
+		DocsDirectory:    "docs",
+		MetadataFile:     "docs/.doc-versions.json",
+		Include:          []string{},
 		Exclude: []string{
 			"vendor/**",
 			"node_modules/**",

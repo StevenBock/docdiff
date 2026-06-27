@@ -108,16 +108,32 @@ docdiff changes <doc> [flags]
 | `--commits` | Show commit list only |
 | `--summary` | Output summary format |
 | `--ai` | Output format optimized for AI documentation updates |
+| `--working-tree` | Diff against the working tree (include uncommitted changes) |
+| `--staged` | Diff against the index (staged changes only) |
+| `--hide-annotations` | Hide diff hunks whose only changes are `@doc` annotation lines |
 
 ### `docdiff sync`
 
 Update metadata after reviewing and updating documentation.
 
 ```bash
-docdiff sync [doc]
+docdiff sync [doc] [flags]
 ```
 
 Without arguments, syncs all docs to current HEAD. With a doc path, syncs only that doc.
+
+| Flag | Description |
+|------|-------------|
+| `--to <ref>` | Sync to a specific ref (HEAD, branch, or sha) instead of current HEAD |
+| `--affected` | Sync only docs whose linked code changed (the stale set) — the post-commit "I reviewed the affected docs" path |
+
+### `docdiff suggest`
+
+Group orphaned files (no `@doc`) by their likely owning doc and emit ready-to-paste annotation lines in batches. The owner is inferred by directory: the nearest ancestor directory with annotated files votes for its most common doc.
+
+```bash
+docdiff suggest [--json]
+```
 
 ### `docdiff graph`
 
@@ -157,6 +173,9 @@ include:
   - "app/**"
   - "lib/**"
 
+# Skip files git ignores (via `git check-ignore`). Default: true.
+respect_gitignore: true
+
 exclude:
   - "vendor/**"
   - "node_modules/**"
@@ -183,6 +202,8 @@ ci:
 ```
 
 Also supports `.docdiff.json`.
+
+For excludes that aren't in `.gitignore` (committed vendored license text, local notes), add a `.docdiffignore` file — one glob per line, `#` for comments. A pattern with no `/` matches the basename at any depth (gitignore-like).
 
 ## Supported Languages
 

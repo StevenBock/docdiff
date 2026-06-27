@@ -7,9 +7,9 @@ type Annotation struct {
 }
 
 type UndocumentedRef struct {
-	DocPath    string
-	SourceFile string
-	Line       int
+	DocPath    string `json:"doc_path"`
+	SourceFile string `json:"source_file"`
+	Line       int    `json:"line"`
 }
 
 type Result struct {
