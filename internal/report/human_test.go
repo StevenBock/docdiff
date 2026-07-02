@@ -3,17 +3,11 @@ package report
 import (
 	"strings"
 	"testing"
-
-	"github.com/StevenBock/docdiff/internal/metadata"
 )
 
 func TestHumanFormatter_Format(t *testing.T) {
 	t.Run("full report", func(t *testing.T) {
 		r := &Report{
-			Metadata: metadata.DocVersions{
-				"docs/API.md":   "abc123",
-				"docs/GUIDE.md": "def456",
-			},
 			StaleDocs: map[string]*StaleDoc{
 				"docs/API.md": {
 					Path:           "docs/API.md",
@@ -77,7 +71,6 @@ func TestHumanFormatter_Format(t *testing.T) {
 
 	t.Run("no stale docs", func(t *testing.T) {
 		r := &Report{
-			Metadata:      metadata.DocVersions{"docs/API.md": "abc123"},
 			StaleDocs:     map[string]*StaleDoc{},
 			FilesByDoc:    map[string][]string{"docs/API.md": {"src/api.go"}},
 			OrphanedFiles: []string{},
@@ -99,7 +92,6 @@ func TestHumanFormatter_Format(t *testing.T) {
 
 	t.Run("stale only mode", func(t *testing.T) {
 		r := &Report{
-			Metadata: metadata.DocVersions{"docs/API.md": "abc123"},
 			StaleDocs: map[string]*StaleDoc{
 				"docs/API.md": {
 					Path:           "docs/API.md",
@@ -192,7 +184,6 @@ func TestHumanFormatter_Format(t *testing.T) {
 		}
 
 		r := &Report{
-			Metadata:   metadata.DocVersions{"docs/API.md": "abc123"},
 			StaleDocs:  map[string]*StaleDoc{},
 			FilesByDoc: map[string][]string{"docs/API.md": files},
 		}

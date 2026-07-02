@@ -21,12 +21,6 @@ func TestDefaultConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("default metadata file", func(t *testing.T) {
-		if cfg.MetadataFile != "docs/.doc-versions.json" {
-			t.Errorf("MetadataFile = %s, want docs/.doc-versions.json", cfg.MetadataFile)
-		}
-	})
-
 	t.Run("default include is empty", func(t *testing.T) {
 		if len(cfg.Include) != 0 {
 			t.Errorf("Include = %v, want empty", cfg.Include)
@@ -107,7 +101,6 @@ func TestLoad(t *testing.T) {
 		configContent := `
 annotation_tag: "@track"
 docs_directory: documentation
-metadata_file: documentation/.versions.json
 include:
   - "src/**"
 exclude:
@@ -131,9 +124,6 @@ ci:
 		}
 		if cfg.DocsDirectory != "documentation" {
 			t.Errorf("DocsDirectory = %s, want documentation", cfg.DocsDirectory)
-		}
-		if cfg.MetadataFile != "documentation/.versions.json" {
-			t.Errorf("MetadataFile = %s, want documentation/.versions.json", cfg.MetadataFile)
 		}
 		if len(cfg.Include) != 1 || cfg.Include[0] != "src/**" {
 			t.Errorf("Include = %v, want [src/**]", cfg.Include)
@@ -226,14 +216,6 @@ ci:
 
 func TestConfig_Paths(t *testing.T) {
 	cfg := DefaultConfig()
-
-	t.Run("MetadataPath", func(t *testing.T) {
-		path := cfg.MetadataPath("/project")
-		expected := filepath.Join("/project", "docs/.doc-versions.json")
-		if path != expected {
-			t.Errorf("MetadataPath() = %s, want %s", path, expected)
-		}
-	})
 
 	t.Run("DocsPath", func(t *testing.T) {
 		path := cfg.DocsPath("/project")

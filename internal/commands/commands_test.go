@@ -82,84 +82,25 @@ func initTestEnv(t *testing.T, dir string) {
 	registry = language.DefaultRegistry()
 }
 
-func TestInit_Integration(t *testing.T) {
-	dir := setupTestProject(t)
-
-	metaPath := filepath.Join(dir, "docs", ".doc-versions.json")
-	if _, err := os.Stat(metaPath); !os.IsNotExist(err) {
-		t.Fatal("Metadata should not exist before init")
-	}
-
-	initTestEnv(t, dir)
-
-	err := initCmd.RunE(initCmd, nil)
-	if err != nil {
-		t.Fatalf("init failed: %v", err)
-	}
-
-	if _, err := os.Stat(metaPath); os.IsNotExist(err) {
-		t.Error("Metadata file should exist after init")
-	}
-
-	content, _ := os.ReadFile(metaPath)
-	if !strings.Contains(string(content), "docs/API.md") {
-		t.Error("Metadata should contain docs/API.md")
-	}
-	if !strings.Contains(string(content), "docs/GUIDE.md") {
-		t.Error("Metadata should contain docs/GUIDE.md")
-	}
-}
-
-func TestInit_Force(t *testing.T) {
-	dir := setupTestProject(t)
-
-	metaPath := filepath.Join(dir, "docs", ".doc-versions.json")
-	os.WriteFile(metaPath, []byte(`{"docs/OLD.md": "old123"}`), 0644)
-
-	initTestEnv(t, dir)
-	initForce = true
-	defer func() { initForce = false }()
-
-	err := initCmd.RunE(initCmd, nil)
-	if err != nil {
-		t.Fatalf("init --force failed: %v", err)
-	}
-
-	content, _ := os.ReadFile(metaPath)
-	if strings.Contains(string(content), "docs/OLD.md") {
-		t.Error("Old metadata should be replaced")
-	}
-	if !strings.Contains(string(content), "docs/API.md") {
-		t.Error("New metadata should be written")
-	}
-}
-
-func TestInit_AlreadyExists(t *testing.T) {
-	dir := setupTestProject(t)
-
-	metaPath := filepath.Join(dir, "docs", ".doc-versions.json")
-	os.WriteFile(metaPath, []byte(`{}`), 0644)
-
-	initTestEnv(t, dir)
-	initForce = false
-
-	err := initCmd.RunE(initCmd, nil)
-	if err == nil {
-		t.Error("init should fail when metadata exists without --force")
+// commitAll stages everything and commits it in dir.
+func commitAll(t *testing.T, dir, message string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"git", "add", "."},
+		{"git", "commit", "-m", message},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("Failed to run %v: %v", args, err)
+		}
 	}
 }
 
 func TestReport_Integration(t *testing.T) {
 	dir := setupTestProject(t)
-
 	initTestEnv(t, dir)
-	initForce = false
-	err := initCmd.RunE(initCmd, nil)
-	if err != nil {
-		t.Fatalf("init failed: %v", err)
-	}
 
-	initTestEnv(t, dir)
 	reportStale = false
 	reportOrphaned = false
 	reportJSON = false
@@ -169,8 +110,7 @@ func TestReport_Integration(t *testing.T) {
 	var stdout bytes.Buffer
 	reportCmd.SetOut(&stdout)
 
-	err = reportCmd.RunE(reportCmd, nil)
-	if err != nil {
+	if err := reportCmd.RunE(reportCmd, nil); err != nil {
 		t.Fatalf("report failed: %v", err)
 	}
 
@@ -186,10 +126,7 @@ func TestReport_Integration(t *testing.T) {
 func TestReport_Stale(t *testing.T) {
 	dir := setupTestProject(t)
 
-	initTestEnv(t, dir)
-	initForce = false
-	initCmd.RunE(initCmd, nil)
-
+	// Change the source linked to docs/API.md in a later commit than the doc.
 	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
 
 // @doc docs/API.md
@@ -197,13 +134,7 @@ func Handler() {
     // Modified
 }
 `), 0644)
-
-	cmd := exec.Command("git", "add", ".")
-	cmd.Dir = dir
-	cmd.Run()
-	cmd = exec.Command("git", "commit", "-m", "Modify handler")
-	cmd.Dir = dir
-	cmd.Run()
+	commitAll(t, dir, "Modify handler")
 
 	initTestEnv(t, dir)
 	reportStale = false
@@ -223,13 +154,102 @@ func Handler() {
 	}
 }
 
-func TestReport_JSON(t *testing.T) {
+func TestReport_Fresh_SameCommit(t *testing.T) {
 	dir := setupTestProject(t)
 
-	initTestEnv(t, dir)
-	initCmd.RunE(initCmd, nil)
+	// Edit code AND its linked doc together in one commit — the shared commit
+	// is the doc's review anchor, so nothing should be stale.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { /* changed */ }
+`), 0644)
+	os.WriteFile(filepath.Join(dir, "docs", "API.md"), []byte("# API Docs\n\nupdated\n"), 0644)
+	commitAll(t, dir, "Change handler and doc together")
 
 	initTestEnv(t, dir)
+	reportStale = false
+	reportOrphaned = false
+
+	var stdout bytes.Buffer
+	reportCmd.SetOut(&stdout)
+
+	reportCmd.RunE(reportCmd, nil)
+
+	if strings.Contains(stdout.String(), "STALE DOCS") {
+		t.Errorf("doc committed with its code should not be stale, got:\n%s", stdout.String())
+	}
+}
+
+func TestAck_SuppressesStale(t *testing.T) {
+	dir := setupTestProject(t)
+
+	// Change only the code linked to docs/API.md, in its own commit → stale.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { /* changed, but the doc is still accurate */ }
+`), 0644)
+	commitAll(t, dir, "Change handler only")
+
+	initTestEnv(t, dir)
+	reportStale = false
+	reportOrphaned = false
+
+	var stdout bytes.Buffer
+	reportCmd.SetOut(&stdout)
+	reportCmd.RunE(reportCmd, nil)
+	if !strings.Contains(stdout.String(), "STALE DOCS") {
+		t.Fatalf("precondition: API.md should be stale before ack, got:\n%s", stdout.String())
+	}
+
+	// Ack it at HEAD: reviewed, no edit needed.
+	ackTo = ""
+	var ackOut bytes.Buffer
+	ackCmd.SetOut(&ackOut)
+	if err := ackCmd.RunE(ackCmd, []string{"docs/API.md"}); err != nil {
+		t.Fatalf("ack failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".docdiff-acks.json")); err != nil {
+		t.Errorf("ack should write .docdiff-acks.json: %v", err)
+	}
+
+	// Report is now clean without touching the doc.
+	stdout.Reset()
+	reportCmd.RunE(reportCmd, nil)
+	if strings.Contains(stdout.String(), "STALE DOCS") {
+		t.Errorf("acked doc should not be stale, got:\n%s", stdout.String())
+	}
+
+	// A later code change re-stales it — the ack only covers up to its floor.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { /* changed again, now the doc really is behind */ }
+`), 0644)
+	commitAll(t, dir, "Change handler again")
+
+	stdout.Reset()
+	reportCmd.RunE(reportCmd, nil)
+	if !strings.Contains(stdout.String(), "STALE DOCS") {
+		t.Errorf("ack should not suppress changes after its floor, got:\n%s", stdout.String())
+	}
+}
+
+func TestAck_UnknownDoc(t *testing.T) {
+	dir := setupTestProject(t)
+	initTestEnv(t, dir)
+
+	ackTo = ""
+	if err := ackCmd.RunE(ackCmd, []string{"docs/NOPE.md"}); err == nil {
+		t.Error("ack should fail for a doc that does not exist")
+	}
+}
+
+func TestReport_JSON(t *testing.T) {
+	dir := setupTestProject(t)
+	initTestEnv(t, dir)
+
 	reportJSON = true
 	reportStale = false
 	reportOrphaned = false
@@ -245,51 +265,13 @@ func TestReport_JSON(t *testing.T) {
 	if !strings.HasPrefix(output, "{") {
 		t.Error("JSON output should start with {")
 	}
-	if !strings.Contains(output, "\"metadata\"") {
-		t.Error("JSON output should contain metadata field")
-	}
-}
-
-func TestSync_Integration(t *testing.T) {
-	dir := setupTestProject(t)
-
-	initTestEnv(t, dir)
-	initCmd.RunE(initCmd, nil)
-
-	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
-
-// @doc docs/API.md
-func Handler() { /* modified */ }
-`), 0644)
-
-	cmd := exec.Command("git", "add", ".")
-	cmd.Dir = dir
-	cmd.Run()
-	cmd = exec.Command("git", "commit", "-m", "Modify")
-	cmd.Dir = dir
-	cmd.Run()
-
-	initTestEnv(t, dir)
-
-	var stdout bytes.Buffer
-	syncCmd.SetOut(&stdout)
-
-	err := syncCmd.RunE(syncCmd, []string{"docs/API.md"})
-	if err != nil {
-		t.Fatalf("sync failed: %v", err)
-	}
-
-	output := stdout.String()
-	if !strings.Contains(output, "Updated docs/API.md") {
-		t.Error("Sync should report updated doc")
+	if !strings.Contains(output, "\"files_by_doc\"") {
+		t.Error("JSON output should contain files_by_doc field")
 	}
 }
 
 func TestChanges_Integration(t *testing.T) {
 	dir := setupTestProject(t)
-
-	initTestEnv(t, dir)
-	initCmd.RunE(initCmd, nil)
 
 	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
 
@@ -298,13 +280,7 @@ func Handler() {
     fmt.Println("new code")
 }
 `), 0644)
-
-	cmd := exec.Command("git", "add", ".")
-	cmd.Dir = dir
-	cmd.Run()
-	cmd = exec.Command("git", "commit", "-m", "Add new code")
-	cmd.Dir = dir
-	cmd.Run()
+	commitAll(t, dir, "Add new code")
 
 	initTestEnv(t, dir)
 	changesCommits = false
@@ -314,8 +290,7 @@ func Handler() {
 	var stdout bytes.Buffer
 	changesCmd.SetOut(&stdout)
 
-	err := changesCmd.RunE(changesCmd, []string{"docs/API.md"})
-	if err != nil {
+	if err := changesCmd.RunE(changesCmd, []string{"docs/API.md"}); err != nil {
 		t.Fatalf("changes failed: %v", err)
 	}
 
@@ -331,21 +306,12 @@ func Handler() {
 func TestChanges_AI(t *testing.T) {
 	dir := setupTestProject(t)
 
-	initTestEnv(t, dir)
-	initCmd.RunE(initCmd, nil)
-
 	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
 
 // @doc docs/API.md
 func Handler() { /* modified */ }
 `), 0644)
-
-	cmd := exec.Command("git", "add", ".")
-	cmd.Dir = dir
-	cmd.Run()
-	cmd = exec.Command("git", "commit", "-m", "Modify handler")
-	cmd.Dir = dir
-	cmd.Run()
+	commitAll(t, dir, "Modify handler")
 
 	initTestEnv(t, dir)
 	changesAI = true
@@ -353,8 +319,7 @@ func Handler() { /* modified */ }
 	changesSummary = false
 	defer func() { changesAI = false }()
 
-	err := changesCmd.RunE(changesCmd, []string{"docs/API.md"})
-	if err != nil {
+	if err := changesCmd.RunE(changesCmd, []string{"docs/API.md"}); err != nil {
 		t.Fatalf("changes --ai failed: %v", err)
 	}
 }
@@ -372,10 +337,9 @@ func TestOnboard_Output(t *testing.T) {
 
 	// Verify key commands are mentioned
 	for _, want := range []string{
-		"docdiff init",
+		"docdiff check",
 		"docdiff report",
 		"docdiff changes",
-		"docdiff sync",
 		"docdiff graph",
 	} {
 		if !strings.Contains(output, want) {
@@ -434,9 +398,7 @@ func TestOnboard_NoPersistentPreRun(t *testing.T) {
 
 func TestCheck_WorkingTree(t *testing.T) {
 	dir := setupTestProject(t)
-
 	initTestEnv(t, dir)
-	initCmd.RunE(initCmd, nil)
 
 	// Modify a source file linked to docs/API.md, but leave it uncommitted.
 	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main

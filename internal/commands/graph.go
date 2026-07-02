@@ -7,7 +7,6 @@ import (
 
 	"github.com/StevenBock/docdiff/internal/git"
 	"github.com/StevenBock/docdiff/internal/graph"
-	"github.com/StevenBock/docdiff/internal/metadata"
 	"github.com/StevenBock/docdiff/internal/scanner"
 )
 
@@ -31,18 +30,6 @@ func init() {
 }
 
 func runGraph(cmd *cobra.Command, args []string) error {
-	metaPath := cfg.MetadataPath(rootDir)
-	meta := metadata.New(metaPath)
-
-	if !meta.Exists() {
-		return fmt.Errorf("metadata file not found: %s\nRun 'docdiff init' first", cfg.MetadataFile)
-	}
-
-	versions, err := meta.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load metadata: %w", err)
-	}
-
 	s := scanner.New(cfg, registry)
 	scanResult, err := s.Scan(rootDir)
 	if err != nil {
@@ -51,22 +38,8 @@ func runGraph(cmd *cobra.Command, args []string) error {
 
 	g := git.New(rootDir)
 	staleDocs := make(map[string]bool)
-
-	for doc, lastHash := range versions {
-		files := scanResult.FilesByDoc[doc]
-		if len(files) == 0 {
-			continue
-		}
-
-		changed, err := g.ChangedFilesBetween(lastHash, "HEAD", files)
-		if err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to check changes for %s (%s..HEAD): %v\n", doc, lastHash, err)
-			continue
-		}
-
-		if len(changed) > 0 {
-			staleDocs[doc] = true
-		}
+	for doc := range computeStaleDocs(g, scanResult.FilesByDoc, cmd.ErrOrStderr()) {
+		staleDocs[doc] = true
 	}
 
 	gr := graph.Build(scanResult.FilesByDoc, staleDocs)

@@ -52,16 +52,16 @@ Add ` + "`@doc`" + ` annotations in source code comments to link code to documen
     /** @doc docs/ARCHITECTURE.md */
     public class Router { ... }
 
-When the annotated code changes but the linked doc hasn't been reviewed, docdiff
-reports it as stale.
+A doc is "reviewed" as of its own last commit. If a linked source file has a
+newer commit than the doc, the doc is stale — so editing code and doc together
+in one commit keeps it fresh. There is no metadata file and nothing to sync.
 
 ## Key Commands
 
-- ` + "`docdiff init`" + `       — Initialize documentation version tracking (creates metadata file)
 - ` + "`docdiff check`" + `      — Show ONLY docs affected by your current changes (--staged, --files, --json). Exits non-zero if an affected doc needs updating. Best command for focused agent work.
 - ` + "`docdiff report`" + `     — Full repo-wide stale/orphaned report (supports --json, --sarif, --ci)
-- ` + "`docdiff changes <doc>`" + ` — Show code changes since a doc was last updated (--ai, --working-tree, --staged)
-- ` + "`docdiff sync [doc]`" + `  — Update metadata after reviewing/updating docs (--to <ref> to target a specific commit)
+- ` + "`docdiff changes <doc>`" + ` — Show code changes since a doc was last committed (--ai, --working-tree, --staged)
+- ` + "`docdiff ack <doc>`" + `   — Mark a doc reviewed when its code changed but the doc needed NO edit (records a floor commit in .docdiff-acks.json; --to <ref>)
 - ` + "`docdiff graph`" + `      — Output doc-to-file relationship graph (DOT or --mermaid)
 - ` + "`docdiff onboard`" + `    — Print these instructions
 
@@ -81,12 +81,11 @@ Go, Rust, Java, PHP, Python, JavaScript/TypeScript, Ruby, Vue, Shell/Bash, and P
 ## Typical Workflow
 
 1. Add ` + "`@doc`" + ` annotations to source files linking them to documentation
-2. Run ` + "`docdiff init`" + ` to create the metadata baseline
-3. Develop normally — edit code and documentation
-4. Run ` + "`docdiff report`" + ` to see which docs are stale
-5. Run ` + "`docdiff changes <doc>`" + ` to see what changed
-6. Update the documentation
-7. Run ` + "`docdiff sync`" + ` to mark docs as reviewed
+2. Develop normally — edit code
+3. Run ` + "`docdiff check`" + ` to see which affected docs still need updating
+4. Run ` + "`docdiff changes <doc> --working-tree`" + ` to see what changed
+5. Update the documentation
+6. Commit the code and doc together — the shared commit marks the doc reviewed
 
 ---
 
@@ -106,15 +105,16 @@ This project uses docdiff to track documentation freshness. Source files contain
 - Run ` + "`docdiff check`" + ` to see ONLY the docs affected by your current (uncommitted) changes, ignoring unrelated stale docs elsewhere in the repo. Exit code is non-zero while an affected doc still needs updating.
 - Run ` + "`docdiff changes <doc> --working-tree`" + ` to see exactly what changed (including uncommitted edits) in files linked to that doc.
 - Update the linked documentation to reflect your code changes.
-- Commit the code and doc together, then run ` + "`docdiff sync <doc> --to HEAD`" + ` to mark the doc as reviewed at the new commit. Sync records a commit hash, so it must run AFTER committing — syncing before commit records the old HEAD and the doc looks stale again immediately.
+- Commit the code and doc TOGETHER in one commit. A doc is reviewed as of its own last commit, so sharing the commit with its linked code marks it fresh — no separate sync step and no second commit.
+- If you review a doc and it genuinely needs NO change, run ` + "`docdiff ack <doc>`" + ` after committing the code and commit ` + "`.docdiff-acks.json`" + `. This records a floor so the doc stops reporting stale until its linked code changes again.
 
 ### When adding new code:
 - Add ` + "`@doc`" + ` annotations linking to the relevant documentation file
 - Supported comment styles: ` + "`//`" + `, ` + "`#`" + `, ` + "`/* */`" + `, ` + "`/** */`" + `, ` + "`<!-- -->`" + `
 
 ### When adding new documentation:
-- Run ` + "`docdiff sync <doc>`" + ` to register the new doc in metadata
-- Add ` + "`@doc`" + ` annotations in relevant source files
+- Add ` + "`@doc`" + ` annotations in relevant source files pointing to the new doc
+- Commit the doc and those source files together
 
 --- END DOCDIFF INSTRUCTIONS ---
 `

@@ -2,16 +2,11 @@ package report
 
 import (
 	"testing"
-
-	"github.com/StevenBock/docdiff/internal/metadata"
 )
 
 func TestNewReport(t *testing.T) {
 	r := NewReport()
 
-	if r.Metadata == nil {
-		t.Error("Metadata should be initialized")
-	}
 	if r.StaleDocs == nil {
 		t.Error("StaleDocs should be initialized")
 	}
@@ -25,9 +20,9 @@ func TestNewReport(t *testing.T) {
 
 func TestReport_CalculateSummary(t *testing.T) {
 	r := NewReport()
-	r.Metadata = metadata.DocVersions{
-		"docs/API.md":   "abc123",
-		"docs/GUIDE.md": "def456",
+	r.FilesByDoc = map[string][]string{
+		"docs/API.md":   {"src/api.go"},
+		"docs/GUIDE.md": {"src/guide.go"},
 	}
 	r.StaleDocs = map[string]*StaleDoc{
 		"docs/API.md": {Path: "docs/API.md"},

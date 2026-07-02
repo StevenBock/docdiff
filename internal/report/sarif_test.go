@@ -3,16 +3,10 @@ package report
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/StevenBock/docdiff/internal/metadata"
 )
 
 func TestSARIFFormatter_Format(t *testing.T) {
 	r := &Report{
-		Metadata: metadata.DocVersions{
-			"docs/API.md":   "abc123",
-			"docs/GUIDE.md": "def456",
-		},
 		StaleDocs: map[string]*StaleDoc{
 			"docs/API.md": {
 				Path:           "docs/API.md",
@@ -120,7 +114,6 @@ func TestSARIFFormatter_Format(t *testing.T) {
 
 func TestSARIFFormatter_Format_NoStale(t *testing.T) {
 	r := &Report{
-		Metadata:  metadata.DocVersions{"docs/API.md": "abc123"},
 		StaleDocs: map[string]*StaleDoc{},
 	}
 
@@ -172,10 +165,6 @@ func TestSARIFFormatter_Format_DefaultVersion(t *testing.T) {
 
 func TestSARIFFormatter_Format_MultipleStale(t *testing.T) {
 	r := &Report{
-		Metadata: metadata.DocVersions{
-			"docs/API.md":   "abc123",
-			"docs/GUIDE.md": "def456",
-		},
 		StaleDocs: map[string]*StaleDoc{
 			"docs/API.md": {
 				Path:         "docs/API.md",

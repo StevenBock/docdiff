@@ -50,7 +50,7 @@ func (h *HumanFormatter) formatFull(report *Report) ([]byte, error) {
 	}
 
 	buf.WriteString("By Documentation File:\n")
-	docs := report.Metadata.SortedDocs()
+	docs := sortedKeys(report.FilesByDoc)
 	for _, doc := range docs {
 		files := report.FilesByDoc[doc]
 		staleMarker := ""

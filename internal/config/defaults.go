@@ -6,7 +6,6 @@ func DefaultConfig() *Config {
 		RespectGitignore: &respectGitignore,
 		AnnotationTag:    "@doc",
 		DocsDirectory:    "docs",
-		MetadataFile:     "docs/.doc-versions.json",
 		Include:          []string{},
 		Exclude: []string{
 			"vendor/**",

@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/StevenBock/docdiff/internal/metadata"
 	"github.com/StevenBock/docdiff/internal/scanner"
 )
 
@@ -24,7 +23,6 @@ type DirectoryCoverage struct {
 }
 
 type Report struct {
-	Metadata          metadata.DocVersions
 	StaleDocs         map[string]*StaleDoc
 	FilesByDoc        map[string][]string
 	OrphanedFiles     []string
@@ -49,7 +47,6 @@ type Formatter interface {
 
 func NewReport() *Report {
 	return &Report{
-		Metadata:         make(metadata.DocVersions),
 		StaleDocs:        make(map[string]*StaleDoc),
 		FilesByDoc:       make(map[string][]string),
 		OrphanedFiles:    make([]string, 0),
@@ -59,7 +56,7 @@ func NewReport() *Report {
 
 func (r *Report) CalculateSummary(totalFiles, documentedFiles int) {
 	r.Summary = Summary{
-		TotalDocs:        len(r.Metadata),
+		TotalDocs:        len(r.FilesByDoc),
 		TotalFiles:       totalFiles,
 		DocumentedFiles:  documentedFiles,
 		OrphanedFiles:    len(r.OrphanedFiles),

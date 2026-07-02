@@ -11,7 +11,6 @@ import (
 type Config struct {
 	AnnotationTag    string                    `yaml:"annotation_tag" json:"annotation_tag"`
 	DocsDirectory    string                    `yaml:"docs_directory" json:"docs_directory"`
-	MetadataFile     string                    `yaml:"metadata_file" json:"metadata_file"`
 	Include          []string                  `yaml:"include" json:"include"`
 	Exclude          []string                  `yaml:"exclude" json:"exclude"`
 	RespectGitignore *bool                     `yaml:"respect_gitignore" json:"respect_gitignore"`
@@ -82,10 +81,6 @@ func Load(dir string) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-func (c *Config) MetadataPath(rootDir string) string {
-	return filepath.Join(rootDir, c.MetadataFile)
 }
 
 func (c *Config) DocsPath(rootDir string) string {

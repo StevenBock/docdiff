@@ -46,22 +46,35 @@ The `internal/language` package uses a strategy pattern for extensibility:
 3. File extension
 4. Content heuristics (`<?php`, `package main`, etc.)
 
+### Staleness model
+
+There is **no metadata file**. A doc's "last reviewed" anchor is its own last
+commit (`git log -1 -- <doc>`). A doc is stale when a linked source file has a
+commit newer than the doc's last commit. Editing code and its doc in the **same
+commit** makes them share that anchor, so nothing is stale — one commit per unit
+of work, no separate sync step. `computeStaleDocs` (`internal/commands/staleness.go`)
+implements this and is shared by `report`, `check`, and `graph`.
+
+For the rare "code changed but the doc needs no edit" case, `ack` records a floor
+commit per doc in `.docdiff-acks.json` (repo root, committed); `effectiveBaseline`
+takes the newer of the doc's last commit and its floor. A missing/garbage-collected
+floor falls back to the doc's own commit, so it never hides real changes.
+
 ### Core Flow
 
 1. **Scanner** (`internal/scanner`) walks the codebase, uses Detector to identify languages, extracts annotations via Strategy
-2. **Metadata** (`internal/metadata`) manages `docs/.doc-versions.json` storing commit hashes per doc
-3. **Git** (`internal/git`) wraps git commands to detect changes between commits
-4. **Report** (`internal/report`) formats output (human, JSON, SARIF)
-5. **Commands** (`internal/commands`) wires everything together via Cobra CLI
+2. **Git** (`internal/git`) wraps git commands; `LastCommit(path)` is the review anchor, plus range diffs between commits
+3. **Report** (`internal/report`) formats output (human, JSON, SARIF)
+4. **Commands** (`internal/commands`) wires everything together via Cobra CLI
 
 ### Commands
 
-- `init` - Create metadata file with current HEAD hashes
 - `check` - Show only docs affected by the current working tree / staged / `--files` set; exits non-zero when an affected doc needs updating (`--json`). Also surfaces missing back-links (undocumented refs) for affected docs. The agent-focused command.
 - `report` - Show repo-wide stale/orphaned docs (supports `--json`, `--sarif`, `--ci`)
-- `changes <doc>` - Show code changes since doc updated (`--ai`, `--working-tree`, `--staged`, `--hide-annotations` to drop annotation-only diff hunks)
-- `sync [doc]` - Update metadata after doc review (`--to <ref>` targets a specific commit; `--affected` syncs only the stale set; run after committing)
+- `changes <doc>` - Show code changes since the doc's last commit (`--ai`, `--working-tree`, `--staged`, `--hide-annotations` to drop annotation-only diff hunks)
+- `ack <doc>...` - Record a review floor for a doc whose code changed but text needed no edit (`--to <ref>`; writes `.docdiff-acks.json`)
 - `suggest` - Group orphaned files by likely owning doc (directory-vote heuristic) and emit `@doc` annotation lines in batches (`--json`)
+- `graph` - Output doc-to-file relationship graph (DOT or `--mermaid`); stale links highlighted
 
 ## Configuration
 

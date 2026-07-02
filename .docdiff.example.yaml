@@ -8,9 +8,6 @@ annotation_tag: "@doc"
 # Directory containing documentation files (default: "docs")
 docs_directory: docs
 
-# Path to the metadata file tracking commit hashes (default: "docs/.doc-versions.json")
-metadata_file: docs/.doc-versions.json
-
 # Glob patterns for files to include (empty = all supported files)
 # Examples:
 # include:

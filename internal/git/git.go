@@ -111,6 +111,32 @@ func (g *Git) HeadFull() (string, error) {
 	return g.run("rev-parse", "HEAD")
 }
 
+// LastCommit returns the short hash of the most recent commit that touched
+// path, or "" if the path has no commits yet (new/untracked). This is the
+// "last reviewed" anchor for a doc: code committed after it is unreviewed.
+func (g *Git) LastCommit(path string) (string, error) {
+	return g.run("log", "-1", "--format=%h", "--", path)
+}
+
+// IsAncestor reports whether commit a is an ancestor of commit b (a is older).
+// Used to pick the newer of a doc's last commit and an ack floor. A clean
+// "not an ancestor" (exit 1) is not an error; unknown commits are.
+func (g *Git) IsAncestor(a, b string) (bool, error) {
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", a, b)
+	cmd.Dir = g.workDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("git merge-base --is-ancestor %s %s: %w: %s", a, b, err, stderr.String())
+	}
+	return true, nil
+}
+
 func (g *Git) CommitInfo(hash string) (string, error) {
 	return g.run("log", "-1", "--format=%h (%ar)", hash)
 }

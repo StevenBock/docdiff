@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/StevenBock/docdiff/internal/git"
-	"github.com/StevenBock/docdiff/internal/metadata"
 	"github.com/StevenBock/docdiff/internal/scanner"
 )
 
@@ -46,23 +45,6 @@ func init() {
 func runChanges(cmd *cobra.Command, args []string) error {
 	doc := args[0]
 
-	metaPath := cfg.MetadataPath(rootDir)
-	meta := metadata.New(metaPath)
-
-	if !meta.Exists() {
-		return fmt.Errorf("metadata file not found: %s\nRun 'docdiff init' first", cfg.MetadataFile)
-	}
-
-	versions, err := meta.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load metadata: %w", err)
-	}
-
-	lastHash, ok := versions[doc]
-	if !ok {
-		return fmt.Errorf("document not found in metadata: %s\nAvailable docs: %v", doc, versions.SortedDocs())
-	}
-
 	s := scanner.New(cfg, registry)
 	scanResult, err := s.Scan(rootDir)
 	if err != nil {
@@ -77,6 +59,15 @@ func runChanges(cmd *cobra.Command, args []string) error {
 	}
 
 	g := git.New(rootDir)
+
+	lastHash, err := g.LastCommit(doc)
+	if err != nil {
+		return fmt.Errorf("failed to find last commit for %s: %w", doc, err)
+	}
+	if lastHash == "" {
+		fmt.Fprintf(out, "%s has no commits yet — nothing to compare against.\n", doc)
+		return nil
+	}
 
 	if changesWorkTree || changesStaged {
 		return outputWorkTree(out, g, doc, lastHash, files, changesStaged)
@@ -145,7 +136,7 @@ func outputWorkTree(out io.Writer, g *git.Git, doc, lastHash string, files []str
 	fmt.Fprintf(out, "Files changed: %d\n\n", len(changed))
 
 	if len(changed) == 0 {
-		fmt.Fprintf(out, "No %s changes to %s files since the doc was last synced.\n", scope, doc)
+		fmt.Fprintf(out, "No %s changes to %s files since the doc was last committed.\n", scope, doc)
 		return nil
 	}
 
@@ -256,7 +247,7 @@ func outputAI(out io.Writer, g *git.Git, doc, lastHash string, files []string) e
 	fmt.Fprintln(out)
 
 	fmt.Fprintln(out, "## Changes Since Last Update")
-	fmt.Fprintf(out, "Last synced: %s (%s)\n", lastHash, lastDate)
+	fmt.Fprintf(out, "Doc last committed: %s (%s)\n", lastHash, lastDate)
 	fmt.Fprintf(out, "Current HEAD: %s (%s)\n", currentHead, currentDate)
 
 	commits, _ := g.CommitsBetween(lastHash, "HEAD", files)

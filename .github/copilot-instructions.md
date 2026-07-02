@@ -38,9 +38,10 @@ docdiff/
 │   ├── filetype/        # File type detection
 │   ├── git/             # Git operations
 │   ├── language/        # Language strategies
-│   ├── metadata/        # Doc version metadata
 │   ├── report/          # Output formatters
 │   └── scanner/         # Annotation scanner
-└── docs/
-    └── .doc-versions.json  # Tracked doc commit hashes
+└── docs/                # Documentation tracked via @doc annotations
 ```
+
+Staleness is derived from git history — a doc is "reviewed" as of its own last
+commit — so there is no metadata file to maintain.

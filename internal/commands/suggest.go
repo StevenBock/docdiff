@@ -140,7 +140,7 @@ func writeSuggestHuman(out io.Writer, suggestions []docSuggestion, unmapped []st
 		fmt.Fprintln(out)
 	}
 
-	fmt.Fprintln(out, "Add each annotation to the file's top comment, then run 'docdiff sync --affected --to HEAD' after committing.")
+	fmt.Fprintln(out, "Add each annotation to the file's top comment, then commit the source and its doc together.")
 }
 
 func writeSuggestJSON(out io.Writer, suggestions []docSuggestion, unmapped []string) error {

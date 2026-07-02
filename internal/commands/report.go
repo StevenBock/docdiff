@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/StevenBock/docdiff/internal/git"
-	"github.com/StevenBock/docdiff/internal/metadata"
 	"github.com/StevenBock/docdiff/internal/report"
 	"github.com/StevenBock/docdiff/internal/scanner"
 )
@@ -51,18 +50,6 @@ func init() {
 }
 
 func runReport(cmd *cobra.Command, args []string) error {
-	metaPath := cfg.MetadataPath(rootDir)
-	meta := metadata.New(metaPath)
-
-	if !meta.Exists() {
-		return fmt.Errorf("metadata file not found: %s\nRun 'docdiff init' first", cfg.MetadataFile)
-	}
-
-	versions, err := meta.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load metadata: %w", err)
-	}
-
 	s := scanner.New(cfg, registry)
 	scanResult, err := s.Scan(rootDir)
 	if err != nil {
@@ -70,10 +57,9 @@ func runReport(cmd *cobra.Command, args []string) error {
 	}
 
 	g := git.New(rootDir)
-	staleDocs := computeStaleDocs(g, versions, scanResult.FilesByDoc, cmd.ErrOrStderr())
+	staleDocs := computeStaleDocs(g, scanResult.FilesByDoc, cmd.ErrOrStderr())
 
 	rpt := report.NewReport()
-	rpt.Metadata = versions
 	rpt.StaleDocs = staleDocs
 	rpt.FilesByDoc = scanResult.FilesByDoc
 	rpt.OrphanedFiles = scanResult.OrphanedFiles()

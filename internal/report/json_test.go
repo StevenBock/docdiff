@@ -3,15 +3,10 @@ package report
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/StevenBock/docdiff/internal/metadata"
 )
 
 func TestJSONFormatter_Format(t *testing.T) {
 	r := &Report{
-		Metadata: metadata.DocVersions{
-			"docs/API.md": "abc123",
-		},
 		StaleDocs: map[string]*StaleDoc{
 			"docs/API.md": {
 				Path:           "docs/API.md",
@@ -46,16 +41,6 @@ func TestJSONFormatter_Format(t *testing.T) {
 	if err := json.Unmarshal(output, &parsed); err != nil {
 		t.Fatalf("Output is not valid JSON: %v", err)
 	}
-
-	t.Run("contains metadata", func(t *testing.T) {
-		meta, ok := parsed["metadata"].(map[string]interface{})
-		if !ok {
-			t.Fatal("metadata field missing or wrong type")
-		}
-		if meta["docs/API.md"] != "abc123" {
-			t.Error("metadata should contain doc versions")
-		}
-	})
 
 	t.Run("contains stale_docs", func(t *testing.T) {
 		stale, ok := parsed["stale_docs"].(map[string]interface{})
@@ -127,9 +112,6 @@ func TestJSONFormatter_Format_Empty(t *testing.T) {
 		t.Fatalf("Output is not valid JSON: %v", err)
 	}
 
-	if parsed["metadata"] == nil {
-		t.Error("Empty report should still have metadata field")
-	}
 	if parsed["stale_docs"] == nil {
 		t.Error("Empty report should still have stale_docs field")
 	}
@@ -137,7 +119,7 @@ func TestJSONFormatter_Format_Empty(t *testing.T) {
 
 func TestJSONFormatter_Format_PrettyPrint(t *testing.T) {
 	r := NewReport()
-	r.Metadata["docs/API.md"] = "abc123"
+	r.FilesByDoc["docs/API.md"] = []string{"src/a.go"}
 
 	f := &JSONFormatter{}
 	output, err := f.Format(r)

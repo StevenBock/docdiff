@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/StevenBock/docdiff/internal/git"
-	"github.com/StevenBock/docdiff/internal/metadata"
 	"github.com/StevenBock/docdiff/internal/scanner"
 )
 
@@ -157,18 +156,8 @@ func changedSet(g *git.Git) ([]string, string, error) {
 }
 
 func unrelatedStaleCount(g *git.Git, filesByDoc map[string][]string, affected map[string]bool, errOut io.Writer) int {
-	metaPath := cfg.MetadataPath(rootDir)
-	meta := metadata.New(metaPath)
-	if !meta.Exists() {
-		return 0
-	}
-	versions, err := meta.Load()
-	if err != nil {
-		return 0
-	}
-
 	count := 0
-	for doc := range computeStaleDocs(g, versions, filesByDoc, errOut) {
+	for doc := range computeStaleDocs(g, filesByDoc, errOut) {
 		if !affected[doc] {
 			count++
 		}
@@ -205,8 +194,8 @@ func writeCheckHuman(out io.Writer, source string, results []checkResult, undocR
 	}
 
 	if needsUpdate > 0 {
-		fmt.Fprintln(out, "\nNext: update the docs above, then after committing run")
-		fmt.Fprintln(out, "  docdiff sync --affected --to HEAD")
+		fmt.Fprintln(out, "\nNext: update the docs above and commit them together with your code —")
+		fmt.Fprintln(out, "editing a doc in the same commit as its linked source marks it reviewed.")
 	}
 }
 

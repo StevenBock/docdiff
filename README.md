@@ -8,10 +8,9 @@ docdiff tracks the relationship between source code and documentation files usin
 
 **How it works:**
 1. Add `@doc docs/FILE.md` annotations to your source code comments
-2. Run `docdiff init` to create a metadata file tracking commit hashes
-3. Run `docdiff report` to see which docs are stale after code changes
-4. Use `docdiff changes` to see what changed (with AI-friendly output)
-5. Run `docdiff sync` after updating documentation
+2. Run `docdiff report` (or `docdiff check` for just your changes) to see which docs are stale
+3. Use `docdiff changes` to see what changed (with AI-friendly output)
+4. Commit the code and its doc together — a doc is "reviewed" as of its own last commit, so the shared commit marks it fresh. No metadata file, no separate sync step.
 
 ## Installation
 
@@ -53,31 +52,32 @@ class AuthController {
 }
 ```
 
-2. Initialize tracking:
-
-```bash
-docdiff init
-```
-
-3. Check for stale documentation:
+2. Check for stale documentation:
 
 ```bash
 docdiff report
 ```
 
+No setup step is needed — docdiff derives each doc's "last reviewed" point from
+its own last commit in git history.
+
 ## Commands
 
-### `docdiff init`
+### `docdiff check`
 
-Initialize documentation tracking by creating a metadata file.
+Show only the docs affected by your current (uncommitted) changes, ignoring
+unrelated stale docs elsewhere. Exits non-zero while an affected doc still needs
+updating — the command for focused agent work.
 
 ```bash
-docdiff init [--force]
+docdiff check [flags]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--force` | Overwrite existing metadata file |
+| `--staged` | Only consider staged (index) changes |
+| `--files` | Check an explicit list of files instead of git changes |
+| `--json` | Output as JSON |
 
 ### `docdiff report`
 
@@ -112,20 +112,23 @@ docdiff changes <doc> [flags]
 | `--staged` | Diff against the index (staged changes only) |
 | `--hide-annotations` | Hide diff hunks whose only changes are `@doc` annotation lines |
 
-### `docdiff sync`
+### `docdiff ack`
 
-Update metadata after reviewing and updating documentation.
+Mark a doc reviewed when its linked code changed but the doc needed **no** edit.
+Normally you mark a doc reviewed by editing it in the same commit as its code;
+when there's nothing to edit, `ack` records a floor commit (default HEAD) in
+`.docdiff-acks.json` instead. Staleness is measured from the newer of the doc's
+own last commit and this floor, so the doc stops reporting stale until its code
+changes again. The floor is an existing commit, so there's no chicken-and-egg —
+commit the code, run `ack`, and commit `.docdiff-acks.json`.
 
 ```bash
-docdiff sync [doc] [flags]
+docdiff ack <doc>... [--to <ref>]
 ```
-
-Without arguments, syncs all docs to current HEAD. With a doc path, syncs only that doc.
 
 | Flag | Description |
 |------|-------------|
-| `--to <ref>` | Sync to a specific ref (HEAD, branch, or sha) instead of current HEAD |
-| `--affected` | Sync only docs whose linked code changed (the stale set) — the post-commit "I reviewed the affected docs" path |
+| `--to <ref>` | Floor commit to ack at (HEAD, branch, or sha); default HEAD |
 
 ### `docdiff suggest`
 
@@ -166,7 +169,6 @@ Create `.docdiff.yaml` in your project root:
 ```yaml
 annotation_tag: "@doc"
 docs_directory: docs
-metadata_file: docs/.doc-versions.json
 
 include:
   - "src/**"
@@ -242,7 +244,7 @@ docdiff changes docs/API.md --ai | claude
 Output includes:
 - Current documentation content
 - List of tracked source files
-- All commits since last sync
+- All commits since the doc's last commit
 - Full diffs grouped by commit
 - Instructions for the AI
 
@@ -301,11 +303,9 @@ func DefaultRegistry() *Registry {
 ## Example Workflow
 
 ```bash
-# Initial setup
-docdiff init
-
 # After making code changes, check what's stale
-docdiff report
+docdiff report          # whole repo
+docdiff check           # just the docs your current changes touch
 
 # See what changed for a specific doc
 docdiff changes docs/API.md
@@ -314,8 +314,12 @@ docdiff changes docs/API.md
 docdiff changes docs/API.md --ai | pbcopy
 # Paste into your AI assistant
 
-# After updating the documentation
-docdiff sync docs/API.md
+# Update the doc, then commit it TOGETHER with your code — the shared commit
+# marks the doc reviewed. No sync step, no second commit.
+git add src/ docs/API.md && git commit -m "Update handler and its docs"
+
+# If the doc needed NO change, ack it instead of editing it
+docdiff ack docs/API.md && git add .docdiff-acks.json && git commit -m "Ack API.md"
 
 # Verify everything is current
 docdiff report
