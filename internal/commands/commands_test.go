@@ -435,8 +435,8 @@ func Handler() {
 	if err != nil {
 		t.Errorf("check should pass when the doc was also edited, got: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "docs/API.md: updated") {
-		t.Errorf("expected API.md to be marked updated, got:\n%s", stdout.String())
+	if !strings.Contains(stdout.String(), "Already updated") || !strings.Contains(stdout.String(), "docs/API.md") {
+		t.Errorf("expected API.md in the already-updated section, got:\n%s", stdout.String())
 	}
 }
 

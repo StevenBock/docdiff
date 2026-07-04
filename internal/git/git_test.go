@@ -343,3 +343,23 @@ func TestGit_FilesChangedInCommit(t *testing.T) {
 		}
 	})
 }
+
+func TestParseHunks(t *testing.T) {
+	diff := "diff --git a/x.go b/x.go\n" +
+		"--- a/x.go\n" +
+		"+++ b/x.go\n" +
+		"@@ -3,0 +4,2 @@\n" +
+		"@@ -10 +12 @@\n" +
+		"diff --git a/gone.go b/gone.go\n" +
+		"--- a/gone.go\n" +
+		"+++ /dev/null\n" +
+		"@@ -1,5 +0,0 @@\n"
+	got := parseHunks(diff)
+	x := got["x.go"]
+	if len(x) != 2 || x[0] != (LineRange{4, 5}) || x[1] != (LineRange{12, 12}) {
+		t.Errorf("x.go ranges = %+v, want [{4 5} {12 12}]", x)
+	}
+	if _, ok := got["gone.go"]; ok {
+		t.Errorf("deletion to /dev/null should record no new-side range, got %+v", got["gone.go"])
+	}
+}

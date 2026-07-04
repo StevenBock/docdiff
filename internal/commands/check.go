@@ -16,9 +16,10 @@ import (
 var ErrDocsNeedUpdate = fmt.Errorf("docs linked to changed files need updating")
 
 var (
-	checkStaged bool
-	checkFiles  []string
-	checkJSON   bool
+	checkStaged      bool
+	checkFiles       []string
+	checkJSON        bool
+	checkNoBacklinks bool
 )
 
 var checkCmd = &cobra.Command{
@@ -41,6 +42,7 @@ func init() {
 	checkCmd.Flags().BoolVar(&checkStaged, "staged", false, "only consider staged (index) changes")
 	checkCmd.Flags().StringSliceVar(&checkFiles, "files", nil, "check an explicit list of files instead of git changes")
 	checkCmd.Flags().BoolVar(&checkJSON, "json", false, "output as JSON")
+	checkCmd.Flags().BoolVar(&checkNoBacklinks, "no-backlinks", false, "hide missing back-link (hygiene) suggestions")
 	rootCmd.AddCommand(checkCmd)
 }
 
@@ -64,6 +66,17 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		inChange[f] = true
 	}
 
+	// Changed line ranges per file, so scoped annotations only flag docs whose
+	// owned region was actually touched. Only diff-backed modes have hunks;
+	// --files has none, so it falls back to whole-file ownership.
+	var hunks map[string][]git.LineRange
+	switch source {
+	case "working tree":
+		hunks, _ = g.ChangedHunksSince("HEAD", false, changed)
+	case "staged changes":
+		hunks, _ = g.ChangedHunksSince("HEAD", true, changed)
+	}
+
 	s := scanner.New(cfg, registry)
 	scanResult, err := s.Scan(rootDir)
 	if err != nil {
@@ -75,7 +88,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	for doc, files := range scanResult.FilesByDoc {
 		var linkedChanged []string
 		for _, f := range files {
-			if inChange[f] {
+			if inChange[f] && fileHitsDoc(scanResult.Annotations[f], doc, hunks) {
 				linkedChanged = append(linkedChanged, f)
 			}
 		}
@@ -105,10 +118,13 @@ func runCheck(cmd *cobra.Command, args []string) error {
 
 	// Surface missing back-links for the docs this change touches, so they're
 	// caught in the normal flow instead of a separate `report --undocumented`.
+	// This is hygiene, not a blocker: it never gates the exit code.
 	var undocRefs []scanner.UndocumentedRef
-	for _, ref := range scanResult.UndocumentedRefs {
-		if affected[ref.DocPath] {
-			undocRefs = append(undocRefs, ref)
+	if !checkNoBacklinks {
+		for _, ref := range scanResult.UndocumentedRefs {
+			if affected[ref.DocPath] {
+				undocRefs = append(undocRefs, ref)
+			}
 		}
 	}
 
@@ -174,27 +190,43 @@ func writeCheckHuman(out io.Writer, source string, results []checkResult, undocR
 		return
 	}
 
-	fmt.Fprintf(out, "Relevant docs for %s:\n", source)
+	// Section 1 — required: docs whose linked code changed but weren't edited.
+	// This is the only section that drives the exit code.
+	fmt.Fprintf(out, "Required for %s changes (%d):\n", source, needsUpdate)
+	if needsUpdate == 0 {
+		fmt.Fprintln(out, "  none — every affected doc was edited alongside its code.")
+	}
 	for _, r := range results {
-		fmt.Fprintf(out, "  %s: %s\n", r.Doc, r.Status)
+		if r.Status == "needs update" {
+			fmt.Fprintf(out, "  %s: needs update\n", r.Doc)
+		}
 	}
-	fmt.Fprintln(out)
 
+	// Section 2 — already satisfied: edited in this changeset. Informational.
 	updated := len(results) - needsUpdate
-	fmt.Fprintf(out, "%d affected (%d updated, %d needs-update).\n", len(results), updated, needsUpdate)
-	if unrelatedStale > 0 {
-		fmt.Fprintf(out, "Unrelated stale docs: %d hidden (run 'docdiff report' for the full picture).\n", unrelatedStale)
+	if updated > 0 {
+		fmt.Fprintf(out, "\nAlready updated in this changeset (%d):\n", updated)
+		for _, r := range results {
+			if r.Status == "updated" {
+				fmt.Fprintf(out, "  %s\n", r.Doc)
+			}
+		}
 	}
 
+	// Section 3 — hygiene: missing back-links. Never gates the exit code.
 	if len(undocRefs) > 0 {
-		fmt.Fprintf(out, "\nMissing back-links in affected docs (%d):\n", len(undocRefs))
+		fmt.Fprintf(out, "\nBack-link hygiene — optional (%d):\n", len(undocRefs))
 		for _, ref := range undocRefs {
 			fmt.Fprintf(out, "  %s references %s (add: %s %s)\n", ref.DocPath, ref.SourceFile, cfg.AnnotationTag, ref.DocPath)
 		}
 	}
 
+	if unrelatedStale > 0 {
+		fmt.Fprintf(out, "\nUnrelated stale docs: %d hidden (run 'docdiff report' for the full picture).\n", unrelatedStale)
+	}
+
 	if needsUpdate > 0 {
-		fmt.Fprintln(out, "\nNext: update the docs above and commit them together with your code —")
+		fmt.Fprintln(out, "\nNext: update the required docs above and commit them together with your code —")
 		fmt.Fprintln(out, "editing a doc in the same commit as its linked source marks it reviewed.")
 	}
 }

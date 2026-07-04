@@ -94,9 +94,9 @@ func (s *Scanner) Scan(rootDir string) (*Result, error) {
 
 		result.AddFile(c.relPath)
 
-		docs := strategy.ExtractAnnotations(content, s.config.AnnotationTag)
-		if len(docs) > 0 {
-			result.AddAnnotation(c.relPath, docs, strategy.Name())
+		details := strategy.ExtractDetailed(content, s.config.AnnotationTag)
+		if len(details) > 0 {
+			result.AddAnnotation(c.relPath, details, strategy.Name())
 		}
 	}
 

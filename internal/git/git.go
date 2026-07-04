@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -109,6 +111,17 @@ func (g *Git) StagedFiles() ([]string, error) {
 
 func (g *Git) HeadFull() (string, error) {
 	return g.run("rev-parse", "HEAD")
+}
+
+// StageAndAmend stages paths and folds them into the current HEAD commit
+// (keeping its message). Used by `ack --amend` so a "reviewed, no edit" floor
+// lands in the same commit as the code it reviews.
+func (g *Git) StageAndAmend(paths ...string) error {
+	if _, err := g.run(append([]string{"add", "--"}, paths...)...); err != nil {
+		return err
+	}
+	_, err := g.run("commit", "--amend", "--no-edit")
+	return err
 }
 
 // LastCommit returns the short hash of the most recent commit that touched
@@ -312,6 +325,71 @@ type CommitDetail struct {
 	Hash    string
 	Short   string
 	Subject string
+}
+
+// LineRange is an inclusive 1-based range of new-side lines a diff hunk touched.
+type LineRange struct {
+	Start int
+	End   int
+}
+
+var hunkHeader = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@`)
+
+// ChangedHunksSince returns, per file, the new-side line ranges changed against
+// fromHash (working tree, or the index when staged). Uses --unified=0 so ranges
+// are tight. Untracked files never appear (they aren't in a diff). Used for
+// hunk-level scope matching in `check`.
+func (g *Git) ChangedHunksSince(fromHash string, staged bool, files []string) (map[string][]LineRange, error) {
+	args := []string{"diff", "--unified=0", "--no-color"}
+	if staged {
+		args = append(args, "--cached")
+	}
+	args = append(args, fromHash)
+	if len(files) > 0 {
+		args = append(args, "--")
+		args = append(args, files...)
+	}
+	out, err := g.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseHunks(out), nil
+}
+
+func parseHunks(diff string) map[string][]LineRange {
+	result := make(map[string][]LineRange)
+	if diff == "" {
+		return result
+	}
+	var file string
+	for _, line := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++ "):
+			// "+++ b/path" (or "/dev/null" for a deletion).
+			p := strings.TrimPrefix(line, "+++ ")
+			if p == "/dev/null" {
+				file = ""
+				continue
+			}
+			file = strings.TrimPrefix(p, "b/")
+		case strings.HasPrefix(line, "@@") && file != "":
+			m := hunkHeader.FindStringSubmatch(line)
+			if m == nil {
+				continue
+			}
+			start, _ := strconv.Atoi(m[1])
+			count := 1
+			if m[2] != "" {
+				count, _ = strconv.Atoi(m[2])
+			}
+			end := start + count - 1
+			if count == 0 {
+				end = start // pure deletion: the line the removal sits at
+			}
+			result[file] = append(result[file], LineRange{Start: start, End: end})
+		}
+	}
+	return result
 }
 
 func splitNonEmpty(s string) []string {

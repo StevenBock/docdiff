@@ -341,7 +341,7 @@ func handler() {}`,
 func TestResult_AddAnnotation(t *testing.T) {
 	r := NewResult()
 
-	r.AddAnnotation("src/service.go", []string{"docs/API.md", "docs/GUIDE.md"}, "go")
+	r.AddAnnotation("src/service.go", []language.DocAnnotation{{Path: "docs/API.md"}, {Path: "docs/GUIDE.md"}}, "go")
 
 	if len(r.Annotations) != 1 {
 		t.Errorf("Annotations should have 1 entry, got %d", len(r.Annotations))
@@ -384,7 +384,7 @@ func TestResult_OrphanedFiles(t *testing.T) {
 	r.AddFile("src/orphan1.go")
 	r.AddFile("src/orphan2.go")
 
-	r.AddAnnotation("src/annotated.go", []string{"docs/API.md"}, "go")
+	r.AddAnnotation("src/annotated.go", []language.DocAnnotation{{Path: "docs/API.md"}}, "go")
 
 	orphaned := r.OrphanedFiles()
 

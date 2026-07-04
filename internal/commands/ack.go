@@ -11,7 +11,10 @@ import (
 	"github.com/StevenBock/docdiff/internal/git"
 )
 
-var ackTo string
+var (
+	ackTo    string
+	ackAmend bool
+)
 
 var ackCmd = &cobra.Command{
 	Use:   "ack <doc>...",
@@ -25,13 +28,18 @@ Staleness is then measured from the newer of the doc's own last commit and this
 floor, so the doc stops being reported stale until its linked code changes again.
 
 The floor is an existing commit, so there is no chicken-and-egg: commit your
-code first, then run 'docdiff ack <doc>' and commit .docdiff-acks.json.`,
+code first, then run 'docdiff ack <doc>' and commit .docdiff-acks.json.
+
+To keep code and its ack in ONE commit (per the commit-together rule), use
+--amend: commit your code, then 'docdiff ack <doc> --amend' folds the floor
+into that same commit so it points at exactly the code it reviews.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runAck,
 }
 
 func init() {
 	ackCmd.Flags().StringVar(&ackTo, "to", "", "floor commit to ack at (HEAD, branch, or sha); default HEAD")
+	ackCmd.Flags().BoolVar(&ackAmend, "amend", false, "fold .docdiff-acks.json into the current HEAD commit (single-commit review)")
 	rootCmd.AddCommand(ackCmd)
 }
 
@@ -67,6 +75,13 @@ func runAck(cmd *cobra.Command, args []string) error {
 	}
 
 	sort.Strings(args)
+	if ackAmend {
+		if err := g.StageAndAmend(acksFile); err != nil {
+			return fmt.Errorf("failed to amend %s into HEAD: %w", acksFile, err)
+		}
+		fmt.Fprintf(out, "\nFolded %s into HEAD — code and its ack now share one commit.\n", acksFile)
+		return nil
+	}
 	fmt.Fprintf(out, "\nCommit %s to share these acknowledgements.\n", acksFile)
 	return nil
 }

@@ -1,9 +1,12 @@
 package scanner
 
+import "github.com/StevenBock/docdiff/internal/language"
+
 type Annotation struct {
 	FilePath string
 	DocPaths []string
 	Language string
+	Details  []language.DocAnnotation // per-annotation path/scope/line for hunk-level ownership
 }
 
 type UndocumentedRef struct {
@@ -30,11 +33,21 @@ func NewResult() *Result {
 	}
 }
 
-func (r *Result) AddAnnotation(filePath string, docPaths []string, language string) {
+func (r *Result) AddAnnotation(filePath string, details []language.DocAnnotation, lang string) {
+	docPaths := make([]string, 0, len(details))
+	seen := make(map[string]bool)
+	for _, d := range details {
+		if !seen[d.Path] {
+			seen[d.Path] = true
+			docPaths = append(docPaths, d.Path)
+		}
+	}
+
 	r.Annotations[filePath] = &Annotation{
 		FilePath: filePath,
 		DocPaths: docPaths,
-		Language: language,
+		Language: lang,
+		Details:  details,
 	}
 
 	for _, doc := range docPaths {

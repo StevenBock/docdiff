@@ -88,3 +88,22 @@ func TestBaseStrategy_ExtractFromPatterns(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractDetailed_ScopeAndLine(t *testing.T) {
+	src := "package main\n" + // line 1
+		"// @doc docs/A.md #alpha\n" + // line 2, scoped
+		"var A = 1\n" + // line 3
+		"// @doc docs/B.md trailing prose here\n" + // line 4, bare (prose is NOT a scope)
+		"var B = 2\n" // line 5
+	got := NewGoStrategy().ExtractDetailed([]byte(src), "@doc")
+	if len(got) != 2 {
+		t.Fatalf("got %d annotations, want 2: %+v", len(got), got)
+	}
+	if got[0].Path != "docs/A.md" || got[0].Scope != "alpha" || got[0].Line != 2 {
+		t.Errorf("first = %+v, want {docs/A.md alpha 2}", got[0])
+	}
+	// Trailing non-# prose must not be captured as a scope.
+	if got[1].Path != "docs/B.md" || got[1].Scope != "" || got[1].Line != 4 {
+		t.Errorf("second = %+v, want {docs/B.md \"\" 4}", got[1])
+	}
+}
