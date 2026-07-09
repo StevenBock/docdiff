@@ -1,0 +1,4 @@
+# BEGIN HANGAR MCP hangar
+[mcp_servers.hangar]
+url = "http://localhost:9384/mcp"
+# END HANGAR MCP hangar
