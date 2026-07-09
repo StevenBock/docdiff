@@ -343,6 +343,31 @@ func TestReport_JSON(t *testing.T) {
 	}
 }
 
+func TestReportJSON_RootCommandWritesStdout(t *testing.T) {
+	dir := setupTestProject(t)
+
+	reportCmd.SetOut(nil)
+	reportCmd.SetErr(nil)
+	reportJSON = false
+	reportStale = false
+	reportOrphaned = false
+	reportUndocumented = false
+	reportSARIF = false
+	reportCI = false
+	reportNoBacklinks = false
+
+	stdout, stderr, err := runDocdiff(t, dir, "report", "--json")
+	if err != nil {
+		t.Fatalf("report --json failed: %v\nstderr:\n%s", err, stderr)
+	}
+	if !strings.HasPrefix(stdout, "{") {
+		t.Fatalf("report --json should write JSON to stdout, got stdout=%q stderr prefix=%q", stdout, stderr[:min(len(stderr), 80)])
+	}
+	if stderr != "" {
+		t.Fatalf("report --json should not write JSON to stderr, got:\n%s", stderr)
+	}
+}
+
 func TestChanges_Integration(t *testing.T) {
 	dir := setupTestProject(t)
 

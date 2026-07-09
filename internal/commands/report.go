@@ -98,7 +98,9 @@ func runReport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cmd.Print(string(output))
+	if _, err := cmd.OutOrStdout().Write(output); err != nil {
+		return err
+	}
 
 	if reportCI || isCI() {
 		if cfg.CI.FailOnStale && len(staleDocs) > 0 {
