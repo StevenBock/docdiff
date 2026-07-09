@@ -32,6 +32,7 @@ Create a **new** page only when knowledge was re-derived or re-explained more th
 ## Guardrails
 
 - Code knowledge prefers the repo. Where the project documents its code, how-it-works belongs there — repo docs live in git and stay consistent with each branch; the Logbook does not. Link, do not copy. Where no repo docs exist, orientation pages are welcome here — treat a code page as exactly as fresh as its updated_at.
+- Anchor code references by symbol and file (`resolveThing` in `src/things.ts`), never by line number — symbols survive edits, line numbers rot on the next commit.
 - Whole-field page writes return a content hash — verify round trips against it instead of re-reading large bodies.
 - Read/write ratio is tracked and shown in the UI. A logbook that is only written to is a failed logbook — reading it is part of the job.
 - Pages untouched for 30 days get flagged possibly-stale in the digest. Either the effort moved and the page should say so, or it ended and the status should.

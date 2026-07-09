@@ -24,8 +24,10 @@ In the same fan-out, spawn validators for suspect pages: any page whose `updated
 
 ## Write — single writer, highest bar
 
+First assemble an impact plan from the subagent reports — change → page or entry affected → edit needed → why — and let the window size it: a handful of changed files justifies at most one or two page edits, and a plan touching more than three pages deserves a hard second look before you proceed. A no-op is a legitimate outcome: when nothing passed the bar, change nothing and let the sync marker say the logbook is already current.
+
 - Append one entry per cluster that passed the bar, anchored to its page, tagged with the load-bearing files (`files` argument). Skip clusters that did not.
-- Update pages whose summary, description, or body went false. Settle efforts that finished; archive pages whose subject was removed (with a final entry saying so).
+- Update pages whose summary, description, or body went false — prefer replacing the stale sentence over adding new paragraphs. Settle efforts that finished; archive pages whose subject was removed (with a final entry saying so).
 - Create a new page only for durable new functionality or knowledge — the standing demand rules apply (re-derived twice, or a synthesis worth finding again). Link it from `home` and from related pages; give it an honest summary and description.
 - Keep `home` current: new pages added to the map, dead ones dropped.
 - Close with the sync marker: one project-level entry logged with `category: "sync"` and `commits: [<full-hash>]` (the commit you synced through), whose text is the human-readable digest — `Logbook sync: <one-line digest of what moved> (through commit <full-hash>)`. The category and commit tag are what the next sync finds; never omit the hash.
