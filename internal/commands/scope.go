@@ -1,5 +1,7 @@
 package commands
 
+// @doc CLAUDE.md
+
 import (
 	"github.com/StevenBock/docdiff/internal/git"
 	"github.com/StevenBock/docdiff/internal/language"

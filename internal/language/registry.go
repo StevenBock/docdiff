@@ -1,5 +1,7 @@
 package language
 
+// @doc CLAUDE.md
+
 import "sync"
 
 type Registry struct {

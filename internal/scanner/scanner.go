@@ -1,5 +1,7 @@
 package scanner
 
+// @doc CLAUDE.md
+
 import (
 	"io/fs"
 	"log"

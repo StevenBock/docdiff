@@ -1,5 +1,7 @@
 package report
 
+// @doc CLAUDE.md
+
 import (
 	"sort"
 	"strings"

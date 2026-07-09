@@ -1,5 +1,7 @@
 package git
 
+// @doc CLAUDE.md
+
 import (
 	"bytes"
 	"fmt"

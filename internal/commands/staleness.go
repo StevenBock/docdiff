@@ -1,5 +1,7 @@
 package commands
 
+// @doc CLAUDE.md
+
 import (
 	"fmt"
 	"io"

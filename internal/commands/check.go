@@ -1,5 +1,7 @@
 package commands
 
+// @doc README.md
+
 import (
 	"encoding/json"
 	"fmt"

@@ -1,5 +1,7 @@
 package config
 
+// @doc README.md
+
 import (
 	"encoding/json"
 	"os"

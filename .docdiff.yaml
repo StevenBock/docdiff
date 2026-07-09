@@ -1,0 +1,13 @@
+annotation_tag: "@doc"
+respect_gitignore: true
+
+# Exclude test fixtures and skill/instruction prose that mention "@doc" in
+# string literals or documentation — they aren't real annotations.
+exclude:
+  - "*_test.go"
+  - "*.md"
+  - ".claude/**"
+  - ".agents/**"
+  - ".github/**"
+  - "internal/commands/skills/**"
+  - "vendor/**"

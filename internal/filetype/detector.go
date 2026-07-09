@@ -1,5 +1,7 @@
 package filetype
 
+// @doc CLAUDE.md
+
 import (
 	"bytes"
 	"path/filepath"
