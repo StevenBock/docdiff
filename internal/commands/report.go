@@ -26,6 +26,7 @@ var (
 	reportSARIF        bool
 	reportCI           bool
 	reportDepth        int
+	reportNoBacklinks  bool
 )
 
 var reportCmd = &cobra.Command{
@@ -45,6 +46,7 @@ func init() {
 	reportCmd.Flags().BoolVar(&reportJSON, "json", false, "output as JSON")
 	reportCmd.Flags().BoolVar(&reportSARIF, "sarif", false, "output as SARIF for CI integration")
 	reportCmd.Flags().BoolVar(&reportCI, "ci", false, "enable CI mode (exit 1 on stale docs)")
+	reportCmd.Flags().BoolVar(&reportNoBacklinks, "no-backlinks", false, "hide missing back-link suggestions")
 	reportCmd.Flags().IntVar(&reportDepth, "depth", 1, "directory depth for coverage breakdown (0 = disable)")
 	rootCmd.AddCommand(reportCmd)
 }
@@ -63,7 +65,9 @@ func runReport(cmd *cobra.Command, args []string) error {
 	rpt.StaleDocs = staleDocs
 	rpt.FilesByDoc = scanResult.FilesByDoc
 	rpt.OrphanedFiles = scanResult.OrphanedFiles()
-	rpt.UndocumentedRefs = scanResult.UndocumentedRefs
+	if !reportNoBacklinks {
+		rpt.UndocumentedRefs = scanResult.UndocumentedRefs
+	}
 	rpt.CalculateSummary(len(scanResult.AllFiles), len(scanResult.Annotations))
 
 	if reportDepth > 0 {
@@ -103,7 +107,7 @@ func runReport(cmd *cobra.Command, args []string) error {
 		if cfg.CI.FailOnOrphaned && len(rpt.OrphanedFiles) > 0 {
 			return ErrOrphanedFilesFound
 		}
-		if cfg.CI.FailOnUndocumentedRefs && len(rpt.UndocumentedRefs) > 0 {
+		if !reportNoBacklinks && cfg.CI.FailOnUndocumentedRefs && len(rpt.UndocumentedRefs) > 0 {
 			return ErrUndocumentedRefsFound
 		}
 	}

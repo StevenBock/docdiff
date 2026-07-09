@@ -77,6 +77,12 @@ func (g *Git) ResolveShort(ref string) (string, error) {
 	return g.run("rev-parse", "--short", ref)
 }
 
+// LastCommitMatching returns the newest commit that changed a line matching
+// regex in path, or "" when no such commit exists.
+func (g *Git) LastCommitMatching(path, regex string) (string, error) {
+	return g.run("log", "-1", "--format=%h", "-G", regex, "--", path)
+}
+
 // WorkingTreeFiles returns files changed in the working tree relative to HEAD,
 // including staged, unstaged, and untracked (non-ignored) files.
 func (g *Git) WorkingTreeFiles() ([]string, error) {
@@ -103,6 +109,21 @@ func (g *Git) WorkingTreeFiles() ([]string, error) {
 // StagedFiles returns files staged in the index relative to HEAD.
 func (g *Git) StagedFiles() ([]string, error) {
 	out, err := g.run("diff", "--name-only", "--cached")
+	if err != nil {
+		return nil, err
+	}
+	return splitNonEmpty(out), nil
+}
+
+// UntrackedFiles returns untracked, non-ignored files, optionally filtered to
+// the supplied relative paths.
+func (g *Git) UntrackedFiles(files []string) ([]string, error) {
+	args := []string{"ls-files", "--others", "--exclude-standard"}
+	if len(files) > 0 {
+		args = append(args, "--")
+		args = append(args, files...)
+	}
+	out, err := g.run(args...)
 	if err != nil {
 		return nil, err
 	}

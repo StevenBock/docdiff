@@ -72,3 +72,21 @@ func TestScanIgnore(t *testing.T) {
 		}
 	})
 }
+
+func TestScanSkipsNestedTargetByDefault(t *testing.T) {
+	tmpDir := setupTestDir(t, map[string]string{
+		"src/app.go":                     "package main\n// @doc docs/A.md\nfunc main() {}",
+		"crates/api/target/debug/tmp.rs": "// @doc docs/TARGET.md\nfn main() {}",
+	})
+
+	result, err := New(config.DefaultConfig(), language.DefaultRegistry()).Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if contains(result.AllFiles, "crates/api/target/debug/tmp.rs") {
+		t.Fatalf("nested target file should be skipped by default, got %v", result.AllFiles)
+	}
+	if _, ok := result.FilesByDoc["docs/TARGET.md"]; ok {
+		t.Fatal("nested target annotation should not be scanned")
+	}
+}

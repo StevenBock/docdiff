@@ -60,12 +60,18 @@ func runChanges(cmd *cobra.Command, args []string) error {
 
 	g := git.New(rootDir)
 
-	lastHash, err := g.LastCommit(doc)
+	acks, err := loadAcks(rootDir)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to load %s: %v\n", acksFile, err)
+		acks = map[string]string{}
+	}
+	baseline, err := baselineForDoc(g, doc, acks)
 	if err != nil {
 		return fmt.Errorf("failed to find last commit for %s: %w", doc, err)
 	}
+	lastHash := baseline.Effective
 	if lastHash == "" {
-		fmt.Fprintf(out, "%s has no commits yet — nothing to compare against.\n", doc)
+		fmt.Fprintf(out, "%s has no review baseline yet — nothing to compare against.\n", doc)
 		return nil
 	}
 

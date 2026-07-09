@@ -78,6 +78,7 @@ docdiff check [flags]
 | `--staged` | Only consider staged (index) changes |
 | `--files` | Check an explicit list of files instead of git changes |
 | `--json` | Output as JSON |
+| `--no-backlinks` | Hide missing back-link hygiene suggestions |
 
 ### `docdiff report`
 
@@ -91,9 +92,11 @@ docdiff report [flags]
 |------|-------------|
 | `--stale` | Only show stale docs |
 | `--orphaned` | Only show orphaned files (no `@doc` annotation) |
+| `--undocumented` | Only show docs that reference files without back-links |
 | `--json` | Output as JSON |
 | `--sarif` | Output as SARIF (for CI integration) |
 | `--ci` | Enable CI mode (exit 1 on stale docs) |
+| `--no-backlinks` | Hide missing back-link suggestions |
 
 ### `docdiff changes`
 
@@ -120,15 +123,17 @@ when there's nothing to edit, `ack` records a floor commit (default HEAD) in
 `.docdiff-acks.json` instead. Staleness is measured from the newer of the doc's
 own last commit and this floor, so the doc stops reporting stale until its code
 changes again. The floor is an existing commit, so there's no chicken-and-egg —
-commit the code, run `ack`, and commit `.docdiff-acks.json`.
+commit the code, run `ack`, and commit `.docdiff-acks.json`. Use `--amend` to
+fold that ack into the current HEAD commit.
 
 ```bash
-docdiff ack <doc>... [--to <ref>]
+docdiff ack <doc>... [--to <ref>] [--amend]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--to <ref>` | Floor commit to ack at (HEAD, branch, or sha); default HEAD |
+| `--amend` | Fold `.docdiff-acks.json` into the current HEAD commit |
 
 ### `docdiff suggest`
 

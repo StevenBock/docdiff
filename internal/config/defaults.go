@@ -14,6 +14,7 @@ func DefaultConfig() *Config {
 			"dist/**",
 			"build/**",
 			"target/**",
+			"**/target/**",
 			"__pycache__/**",
 			".venv/**",
 			"venv/**",

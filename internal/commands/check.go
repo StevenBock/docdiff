@@ -47,10 +47,19 @@ func init() {
 }
 
 type checkResult struct {
-	Doc            string   `json:"doc"`
-	Status         string   `json:"status"` // "updated" | "needs update"
-	DocInChangeset bool     `json:"doc_in_changeset"`
-	ChangedFiles   []string `json:"changed_files"`
+	Doc             string                 `json:"doc"`
+	Status          string                 `json:"status"` // "updated" | "needs update"
+	DocInChangeset  bool                   `json:"doc_in_changeset"`
+	ChangedFiles    []string               `json:"changed_files"`
+	LinkedFileCount int                    `json:"linked_file_count"`
+	Annotations     []annotationProvenance `json:"annotations,omitempty"`
+}
+
+type annotationProvenance struct {
+	File  string `json:"file"`
+	Line  int    `json:"line,omitempty"`
+	Kind  string `json:"kind"`
+	Scope string `json:"scope,omitempty"`
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {
@@ -83,8 +92,16 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
+	acks, err := loadAcks(rootDir)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to load %s: %v\n", acksFile, err)
+		acks = map[string]string{}
+	}
+
 	results := make([]checkResult, 0)
 	affected := make(map[string]bool)
+	warnings := make([]string, 0)
+	seenWarnings := make(map[string]bool)
 	for doc, files := range scanResult.FilesByDoc {
 		var linkedChanged []string
 		for _, f := range files {
@@ -96,21 +113,41 @@ func runCheck(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		sort.Strings(linkedChanged)
+
+		if !inChange[doc] {
+			linkedChanged = changedFilesSinceBaseline(g, doc, linkedChanged, source, acks, cmd.ErrOrStderr())
+			if len(linkedChanged) == 0 {
+				continue
+			}
+		}
 		affected[doc] = true
 
 		status := "needs update"
 		if inChange[doc] {
 			status = "updated"
 		}
+		provenance := make([]annotationProvenance, 0)
+		for _, f := range linkedChanged {
+			provenance = append(provenance, provenanceForDoc(scanResult.Annotations[f], doc, f)...)
+			for _, warning := range annotationWarnings(scanResult.Annotations[f], doc) {
+				if !seenWarnings[warning] {
+					seenWarnings[warning] = true
+					warnings = append(warnings, warning)
+				}
+			}
+		}
 		results = append(results, checkResult{
-			Doc:            doc,
-			Status:         status,
-			DocInChangeset: inChange[doc],
-			ChangedFiles:   linkedChanged,
+			Doc:             doc,
+			Status:          status,
+			DocInChangeset:  inChange[doc],
+			ChangedFiles:    linkedChanged,
+			LinkedFileCount: len(files),
+			Annotations:     provenance,
 		})
 	}
 
 	sort.Slice(results, func(i, j int) bool { return results[i].Doc < results[j].Doc })
+	sort.Strings(warnings)
 
 	// Count stale docs that are NOT related to the current change, so we can
 	// say how much noise we hid. Best-effort: needs the metadata file.
@@ -137,9 +174,9 @@ func runCheck(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 	if checkJSON {
-		writeCheckJSON(out, source, results, undocRefs, unrelatedStale, needsUpdate)
+		writeCheckJSON(out, source, results, undocRefs, unrelatedStale, needsUpdate, warnings)
 	} else {
-		writeCheckHuman(out, source, results, undocRefs, unrelatedStale, needsUpdate)
+		writeCheckHuman(out, source, results, undocRefs, unrelatedStale, needsUpdate, warnings)
 	}
 
 	if needsUpdate > 0 {
@@ -181,7 +218,47 @@ func unrelatedStaleCount(g *git.Git, filesByDoc map[string][]string, affected ma
 	return count
 }
 
-func writeCheckHuman(out io.Writer, source string, results []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int) {
+func changedFilesSinceBaseline(g *git.Git, doc string, files []string, source string, acks map[string]string, errOut io.Writer) []string {
+	if source == "working tree" {
+		return files
+	}
+
+	baseline, err := baselineForDoc(g, doc, acks)
+	if err != nil {
+		fmt.Fprintf(errOut, "Warning: failed to find last commit for %s: %v\n", doc, err)
+		return files
+	}
+	if baseline.Effective == "" {
+		return files
+	}
+
+	staged := source == "staged changes"
+	changed, err := g.ChangedFilesSince(baseline.Effective, staged, files)
+	if err != nil {
+		fmt.Fprintf(errOut, "Warning: failed to check changes for %s (%s..%s): %v\n", doc, baseline.Effective, source, err)
+		return files
+	}
+	if source == "files" {
+		untracked, err := g.UntrackedFiles(files)
+		if err == nil {
+			changed = append(changed, untracked...)
+		}
+	}
+
+	changedSet := make(map[string]bool, len(changed))
+	for _, f := range changed {
+		changedSet[f] = true
+	}
+	filtered := make([]string, 0, len(files))
+	for _, f := range files {
+		if changedSet[f] {
+			filtered = append(filtered, f)
+		}
+	}
+	return filtered
+}
+
+func writeCheckHuman(out io.Writer, source string, results []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int, warnings []string) {
 	if len(results) == 0 {
 		fmt.Fprintf(out, "No docs are linked to your %s changes.\n", source)
 		if unrelatedStale > 0 {
@@ -198,7 +275,8 @@ func writeCheckHuman(out io.Writer, source string, results []checkResult, undocR
 	}
 	for _, r := range results {
 		if r.Status == "needs update" {
-			fmt.Fprintf(out, "  %s: needs update\n", r.Doc)
+			fmt.Fprintf(out, "  %s: needs update%s\n", r.Doc, broadHint(r))
+			writeProvenance(out, r)
 		}
 	}
 
@@ -208,8 +286,16 @@ func writeCheckHuman(out io.Writer, source string, results []checkResult, undocR
 		fmt.Fprintf(out, "\nAlready updated in this changeset (%d):\n", updated)
 		for _, r := range results {
 			if r.Status == "updated" {
-				fmt.Fprintf(out, "  %s\n", r.Doc)
+				fmt.Fprintf(out, "  %s%s\n", r.Doc, broadHint(r))
+				writeProvenance(out, r)
 			}
+		}
+	}
+
+	if len(warnings) > 0 {
+		fmt.Fprintf(out, "\nAnnotation warnings:\n")
+		for _, warning := range warnings {
+			fmt.Fprintf(out, "  %s\n", warning)
 		}
 	}
 
@@ -228,12 +314,87 @@ func writeCheckHuman(out io.Writer, source string, results []checkResult, undocR
 	if needsUpdate > 0 {
 		fmt.Fprintln(out, "\nNext: update the required docs above and commit them together with your code —")
 		fmt.Fprintln(out, "editing a doc in the same commit as its linked source marks it reviewed.")
+		fmt.Fprintln(out, "New to docdiff? Run 'docdiff onboard' for agent-ready workflow instructions.")
 	}
 }
 
-func writeCheckJSON(out io.Writer, source string, results []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int) {
+const broadDocLinkedFileThreshold = 20
+
+func broadHint(r checkResult) string {
+	if r.LinkedFileCount >= broadDocLinkedFileThreshold {
+		return fmt.Sprintf(" (broad: %d linked files)", r.LinkedFileCount)
+	}
+	return ""
+}
+
+func writeProvenance(out io.Writer, r checkResult) {
+	for _, p := range r.Annotations {
+		switch {
+		case p.Kind == "scoped":
+			fmt.Fprintf(out, "    via %s:%d scoped %s #%s\n", p.File, p.Line, cfg.AnnotationTag, p.Scope)
+		case p.Line > 0:
+			fmt.Fprintf(out, "    via %s:%d whole-file %s\n", p.File, p.Line, cfg.AnnotationTag)
+		default:
+			fmt.Fprintf(out, "    via %s %s\n", p.File, p.Kind)
+		}
+	}
+}
+
+func provenanceForDoc(ann *scanner.Annotation, doc, file string) []annotationProvenance {
+	if ann == nil {
+		return []annotationProvenance{{File: file, Kind: "unknown annotation"}}
+	}
+
+	out := make([]annotationProvenance, 0)
+	for _, d := range ann.Details {
+		if d.Path != doc {
+			continue
+		}
+		kind := "whole-file"
+		if d.Scope != "" {
+			kind = "scoped"
+		}
+		out = append(out, annotationProvenance{
+			File:  file,
+			Line:  d.Line,
+			Kind:  kind,
+			Scope: d.Scope,
+		})
+	}
+	if len(out) == 0 {
+		return []annotationProvenance{{File: file, Kind: "unknown annotation"}}
+	}
+	return out
+}
+
+func annotationWarnings(ann *scanner.Annotation, doc string) []string {
+	if ann == nil {
+		return nil
+	}
+	hasWholeFile := false
+	hasScoped := false
+	for _, d := range ann.Details {
+		if d.Path != doc {
+			continue
+		}
+		if d.Scope == "" {
+			hasWholeFile = true
+		} else {
+			hasScoped = true
+		}
+	}
+	if hasWholeFile && hasScoped {
+		return []string{fmt.Sprintf("%s mixes whole-file and scoped annotations for %s; whole-file ownership wins for that doc.", ann.FilePath, doc)}
+	}
+	return nil
+}
+
+func writeCheckJSON(out io.Writer, source string, results []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int, warnings []string) {
 	if undocRefs == nil {
 		undocRefs = []scanner.UndocumentedRef{}
+	}
+	if warnings == nil {
+		warnings = []string{}
 	}
 	payload := struct {
 		Source           string                    `json:"source"`
@@ -241,12 +402,14 @@ func writeCheckJSON(out io.Writer, source string, results []checkResult, undocRe
 		UndocumentedRefs []scanner.UndocumentedRef `json:"undocumented_refs"`
 		NeedsUpdate      int                       `json:"needs_update"`
 		UnrelatedStale   int                       `json:"unrelated_stale"`
+		Warnings         []string                  `json:"warnings"`
 	}{
 		Source:           source,
 		Affected:         results,
 		UndocumentedRefs: undocRefs,
 		NeedsUpdate:      needsUpdate,
 		UnrelatedStale:   unrelatedStale,
+		Warnings:         warnings,
 	}
 	data, _ := json.MarshalIndent(payload, "", "  ")
 	fmt.Fprintln(out, string(data))

@@ -44,13 +44,23 @@ func (s *Scanner) Scan(rootDir string) (*Result, error) {
 	var candidates []candidate
 	err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			result.AddError(err)
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		if d.IsDir() {
 			base := filepath.Base(path)
-			if base == ".git" || base == "node_modules" || base == "vendor" {
+			if base == ".git" || base == "node_modules" || base == "vendor" || base == "target" {
 				return filepath.SkipDir
+			}
+			if path != rootDir {
+				relPath, err := filepath.Rel(rootDir, path)
+				if err == nil && isExcluded(filepath.ToSlash(relPath)+"/", excludes) {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}

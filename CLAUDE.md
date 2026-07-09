@@ -62,7 +62,9 @@ commit per doc in `.docdiff-acks.json` (repo root, committed); `effectiveBaselin
 takes the newer of the doc's last commit and its floor. A missing/garbage-collected
 floor falls back to the doc's own commit, so it never hides real changes. To keep
 the ack in the same commit as the code it reviews, `ack --amend` folds
-`.docdiff-acks.json` into HEAD (floor then points at exactly that commit).
+`.docdiff-acks.json` into HEAD. Because a commit cannot contain its own hash in
+the ack file, amended-away floors are re-anchored from the ack entry's committed
+history when staleness is computed.
 
 ### Core Flow
 
@@ -75,7 +77,7 @@ the ack in the same commit as the code it reviews, `ack --amend` folds
 
 - `check` - Show only docs affected by the current working tree / staged / `--files` set; exits non-zero when an affected doc needs updating (`--json`). Output is split into actionability sections — **Required** (the only one that gates the exit code), **Already updated**, and **Back-link hygiene** (`--no-backlinks` to hide it). For diff-backed modes it matches changed hunks against annotation scopes, so a change to one part of a central file only flags the docs that own that part. The agent-focused command.
 - `explain <doc>` - One-shot staleness reasoning for a single doc: linked files, review anchor, ack floor, effective baseline, newest linked commit, and whether the working tree contributes — instead of running several `changes` invocations.
-- `report` - Show repo-wide stale/orphaned docs (supports `--json`, `--sarif`, `--ci`)
+- `report` - Show repo-wide stale/orphaned docs (supports `--json`, `--sarif`, `--ci`, `--no-backlinks`)
 - `changes <doc>` - Show code changes since the doc's last commit (`--ai`, `--working-tree`, `--staged`, `--hide-annotations` to drop annotation-only diff hunks)
 - `ack <doc>...` - Record a review floor for a doc whose code changed but text needed no edit (`--to <ref>`; writes `.docdiff-acks.json`). `--amend` folds the floor into the current HEAD commit so code and its ack live in one commit (per the commit-together rule).
 - `suggest` - Group orphaned files by likely owning doc (directory-vote heuristic) and emit `@doc` annotation lines in batches (`--json`)

@@ -51,18 +51,18 @@ func runExplain(cmd *cobra.Command, args []string) error {
 
 	g := git.New(rootDir)
 
-	docCommit, err := g.LastCommit(doc)
-	if err != nil {
-		return fmt.Errorf("failed to find last commit for %s: %w", doc, err)
-	}
-
 	acks, err := loadAcks(rootDir)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to load %s: %v\n", acksFile, err)
 		acks = map[string]string{}
 	}
-	ackFloor := acks[doc]
-	baseline := effectiveBaseline(g, docCommit, ackFloor)
+	baselineInfo, err := baselineForDoc(g, doc, acks)
+	if err != nil {
+		return fmt.Errorf("failed to find last commit for %s: %w", doc, err)
+	}
+	docCommit := baselineInfo.DocCommit
+	ackFloor := baselineInfo.AckFloor
+	baseline := baselineInfo.Effective
 
 	fmt.Fprintln(out, "\nBaseline (review anchor):")
 	if docCommit == "" {
@@ -75,7 +75,11 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(out, "  ack floor:       none")
 	} else {
 		info, _ := g.CommitInfo(ackFloor)
-		fmt.Fprintf(out, "  ack floor:       %s\n", info)
+		if baselineInfo.AckReanchored {
+			fmt.Fprintf(out, "  ack floor:       %s (re-anchored from amended floor %s)\n", info, baselineInfo.AckRecorded)
+		} else {
+			fmt.Fprintf(out, "  ack floor:       %s\n", info)
+		}
 	}
 	if baseline == "" {
 		fmt.Fprintln(out, "  effective:       none — cannot compute staleness (doc never committed, no ack)")

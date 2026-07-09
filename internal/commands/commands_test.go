@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -95,6 +96,17 @@ func commitAll(t *testing.T, dir, message string) {
 			t.Fatalf("Failed to run %v: %v", args, err)
 		}
 	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Failed to run git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func TestReport_Integration(t *testing.T) {
@@ -236,6 +248,67 @@ func Handler() { /* changed again, now the doc really is behind */ }
 	}
 }
 
+func TestAckAmend_ReanchorsAfterRewrite(t *testing.T) {
+	dir := setupTestProject(t)
+
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { /* reviewed via amend ack */ }
+`), 0644)
+	commitAll(t, dir, "Change handler only")
+
+	initTestEnv(t, dir)
+	ackTo = ""
+	ackAmend = true
+	defer func() { ackAmend = false }()
+
+	var ackOut bytes.Buffer
+	ackCmd.SetOut(&ackOut)
+	if err := ackCmd.RunE(ackCmd, []string{"docs/API.md"}); err != nil {
+		t.Fatalf("ack --amend failed: %v", err)
+	}
+
+	runGit(t, dir, "reflog", "expire", "--expire=now", "--all")
+	runGit(t, dir, "gc", "--prune=now")
+
+	reportStale = false
+	reportOrphaned = false
+	reportUndocumented = false
+	reportJSON = false
+	reportSARIF = false
+	reportCI = false
+	reportNoBacklinks = true
+	defer func() { reportNoBacklinks = false }()
+
+	var reportOut bytes.Buffer
+	reportCmd.SetOut(&reportOut)
+	if err := reportCmd.RunE(reportCmd, nil); err != nil {
+		t.Fatalf("report failed after ack --amend: %v", err)
+	}
+	if strings.Contains(reportOut.String(), "STALE DOCS") {
+		t.Fatalf("amended ack should remain clean after dangling commit prune, got:\n%s", reportOut.String())
+	}
+
+	checkStaged = false
+	checkJSON = false
+	checkNoBacklinks = true
+	checkFiles = []string{"src/handler.go"}
+	defer func() {
+		checkFiles = nil
+		checkNoBacklinks = false
+	}()
+
+	var checkOut bytes.Buffer
+	checkCmd.SetOut(&checkOut)
+	if err := checkCmd.RunE(checkCmd, nil); err != nil {
+		t.Fatalf("check --files should honor amended ack baseline, got %v:\n%s", err, checkOut.String())
+	}
+	if !strings.Contains(checkOut.String(), "No docs are linked to your files changes.") {
+		t.Fatalf("check --files should be clean after amended ack, got:\n%s", checkOut.String())
+	}
+}
+
 func TestAck_UnknownDoc(t *testing.T) {
 	dir := setupTestProject(t)
 	initTestEnv(t, dir)
@@ -300,6 +373,41 @@ func Handler() {
 	}
 	if !strings.Contains(output, "Commits:") {
 		t.Error("Changes should show commit count")
+	}
+}
+
+func TestChanges_UsesAckFloor(t *testing.T) {
+	dir := setupTestProject(t)
+
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { /* code changed, doc reviewed without edit */ }
+`), 0644)
+	commitAll(t, dir, "Modify handler")
+
+	initTestEnv(t, dir)
+	ackTo = ""
+	ackAmend = false
+	var ackOut bytes.Buffer
+	ackCmd.SetOut(&ackOut)
+	if err := ackCmd.RunE(ackCmd, []string{"docs/API.md"}); err != nil {
+		t.Fatalf("ack failed: %v", err)
+	}
+
+	changesCommits = false
+	changesSummary = false
+	changesAI = false
+	changesWorkTree = false
+	changesStaged = false
+	var stdout bytes.Buffer
+	changesCmd.SetOut(&stdout)
+
+	if err := changesCmd.RunE(changesCmd, []string{"docs/API.md"}); err != nil {
+		t.Fatalf("changes failed: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "No changes since last documentation update.") {
+		t.Fatalf("changes should diff from ack floor, got:\n%s", stdout.String())
 	}
 }
 
@@ -437,6 +545,71 @@ func Handler() {
 	}
 	if !strings.Contains(stdout.String(), "Already updated") || !strings.Contains(stdout.String(), "docs/API.md") {
 		t.Errorf("expected API.md in the already-updated section, got:\n%s", stdout.String())
+	}
+}
+
+func TestCheck_PrintsProvenanceAndBroadHint(t *testing.T) {
+	dir := setupTestProject(t)
+
+	for i := 0; i < 19; i++ {
+		path := filepath.Join(dir, "src", "extra"+strconv.Itoa(i)+".go")
+		os.WriteFile(path, []byte(`package main
+// @doc docs/API.md
+func Extra() {}
+`), 0644)
+	}
+	commitAll(t, dir, "Add broad API coverage")
+
+	os.WriteFile(filepath.Join(dir, "src", "extra0.go"), []byte(`package main
+// @doc docs/API.md
+func Extra() { /* changed */ }
+`), 0644)
+
+	initTestEnv(t, dir)
+	checkStaged = false
+	checkJSON = false
+	checkNoBacklinks = true
+	checkFiles = nil
+	defer func() {
+		checkNoBacklinks = false
+		checkFiles = nil
+	}()
+
+	var stdout bytes.Buffer
+	checkCmd.SetOut(&stdout)
+	err := checkCmd.RunE(checkCmd, nil)
+	if err == nil {
+		t.Fatal("check should fail when broad linked doc needs update")
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "docs/API.md: needs update (broad: 20 linked files)") {
+		t.Fatalf("check should flag broad docs inline, got:\n%s", out)
+	}
+	if !strings.Contains(out, "via src/extra0.go:2 whole-file @doc") {
+		t.Fatalf("check should print annotation provenance, got:\n%s", out)
+	}
+	if !strings.Contains(out, "docdiff onboard") {
+		t.Fatalf("check failure should suggest onboard, got:\n%s", out)
+	}
+}
+
+func TestReport_NoBacklinksFlag(t *testing.T) {
+	dir := setupTestProject(t)
+	initTestEnv(t, dir)
+
+	reportStale = false
+	reportOrphaned = false
+	reportUndocumented = false
+	reportJSON = false
+	reportSARIF = false
+	reportCI = false
+	reportNoBacklinks = true
+	defer func() { reportNoBacklinks = false }()
+
+	var stdout bytes.Buffer
+	reportCmd.SetOut(&stdout)
+	if err := reportCmd.RunE(reportCmd, nil); err != nil {
+		t.Fatalf("report --no-backlinks behavior should not fail: %v", err)
 	}
 }
 
