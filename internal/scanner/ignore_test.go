@@ -1,7 +1,10 @@
 package scanner
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/StevenBock/docdiff/internal/config"
@@ -88,5 +91,98 @@ func TestScanSkipsNestedTargetByDefault(t *testing.T) {
 	}
 	if _, ok := result.FilesByDoc["docs/TARGET.md"]; ok {
 		t.Fatal("nested target annotation should not be scanned")
+	}
+}
+
+func TestExcludedDirPatternPrunesDirectory(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		dir     string
+	}{
+		{
+			name:    "explicit nested target",
+			pattern: "src-tauri/target/**",
+			dir:     "src-tauri/target",
+		},
+		{
+			name:    "any nested target",
+			pattern: "**/target/**",
+			dir:     "crates/api/target",
+		},
+		{
+			name:    "basename match",
+			pattern: "target",
+			dir:     "crates/api/target",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !isExcludedDir(tt.dir, []string{tt.pattern}) {
+				t.Fatalf("isExcludedDir(%q, %q) = false, want true", tt.dir, tt.pattern)
+			}
+		})
+	}
+}
+
+func TestScanPrunesExcludedUnreadableDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits do not reliably make directories unreadable on Windows")
+	}
+
+	tmpDir := setupTestDir(t, map[string]string{
+		"src/app.go": "package main\n// @doc docs/A.md\nfunc main() {}",
+		"src-tauri/target/debug/deps/rustcvjsssN.rs": "// @doc docs/TARGET.md\nfn main() {}",
+	})
+
+	targetDir := filepath.Join(tmpDir, "src-tauri", "target")
+	if err := os.Chmod(targetDir, 0); err != nil {
+		t.Fatalf("chmod target dir unreadable: %v", err)
+	}
+	defer os.Chmod(targetDir, 0755)
+
+	cfg := config.DefaultConfig()
+	cfg.Exclude = []string{"src-tauri/target/**"}
+	result, err := New(cfg, language.DefaultRegistry()).Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("excluded unreadable dir should be pruned before walk errors, got %v", result.Errors)
+	}
+	if _, ok := result.FilesByDoc["docs/TARGET.md"]; ok {
+		t.Fatal("excluded target annotation should not be scanned")
+	}
+}
+
+func TestScanPrunesGitignoredUnreadableDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits do not reliably make directories unreadable on Windows")
+	}
+
+	tmpDir := setupTestDir(t, map[string]string{
+		"src/app.go":         "package main\n// @doc docs/A.md\nfunc main() {}",
+		"generated/cache.go": "package gen\n// @doc docs/GENERATED.md\nfunc X() {}",
+		"generated/deep/transient-rust-temp-file": "package gen\n",
+		".gitignore": "generated/\n",
+	})
+	gitInit(t, tmpDir)
+
+	generatedDir := filepath.Join(tmpDir, "generated")
+	if err := os.Chmod(generatedDir, 0); err != nil {
+		t.Fatalf("chmod generated dir unreadable: %v", err)
+	}
+	defer os.Chmod(generatedDir, 0755)
+
+	result, err := New(config.DefaultConfig(), language.DefaultRegistry()).Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("gitignored unreadable dir should be pruned before walk errors, got %v", result.Errors)
+	}
+	if _, ok := result.FilesByDoc["docs/GENERATED.md"]; ok {
+		t.Fatal("gitignored generated annotation should not be scanned")
 	}
 }

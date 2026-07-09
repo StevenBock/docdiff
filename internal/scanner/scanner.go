@@ -40,10 +40,14 @@ func (s *Scanner) Scan(rootDir string) (*Result, error) {
 
 	excludes := append([]string{}, s.config.Exclude...)
 	excludes = append(excludes, loadDocdiffIgnore(rootDir)...)
+	gitignore := newGitignorePruner(rootDir, s.config)
 
 	var candidates []candidate
 	err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if path == rootDir {
+				return err
+			}
 			result.AddError(err)
 			if d != nil && d.IsDir() {
 				return filepath.SkipDir
@@ -52,15 +56,8 @@ func (s *Scanner) Scan(rootDir string) (*Result, error) {
 		}
 
 		if d.IsDir() {
-			base := filepath.Base(path)
-			if base == ".git" || base == "node_modules" || base == "vendor" || base == "target" {
+			if shouldSkipDir(rootDir, path, excludes, gitignore) {
 				return filepath.SkipDir
-			}
-			if path != rootDir {
-				relPath, err := filepath.Rel(rootDir, path)
-				if err == nil && isExcluded(filepath.ToSlash(relPath)+"/", excludes) {
-					return filepath.SkipDir
-				}
 			}
 			return nil
 		}
@@ -115,6 +112,58 @@ func (s *Scanner) Scan(rootDir string) (*Result, error) {
 	}
 
 	return result, nil
+}
+
+func shouldSkipDir(rootDir, path string, excludes []string, gitignore *gitignorePruner) bool {
+	if path == rootDir {
+		return false
+	}
+
+	base := filepath.Base(path)
+	if base == ".git" || base == "node_modules" || base == "vendor" {
+		return true
+	}
+
+	relPath, err := filepath.Rel(rootDir, path)
+	if err != nil {
+		return false
+	}
+	relPath = filepath.ToSlash(relPath)
+
+	return isExcludedDir(relPath, excludes) || gitignore.IgnoredDir(relPath)
+}
+
+type gitignorePruner struct {
+	enabled bool
+	g       *git.Git
+}
+
+func newGitignorePruner(rootDir string, cfg *config.Config) *gitignorePruner {
+	p := &gitignorePruner{}
+	if !cfg.GitignoreRespected() {
+		return p
+	}
+	g := git.New(rootDir)
+	if !g.IsRepo() {
+		return p
+	}
+	p.enabled = true
+	p.g = g
+	return p
+}
+
+func (p *gitignorePruner) IgnoredDir(relPath string) bool {
+	if p == nil || !p.enabled {
+		return false
+	}
+	dirPath := strings.TrimSuffix(relPath, "/") + "/"
+	ignored, err := p.g.CheckIgnore([]string{dirPath, relPath})
+	if err != nil {
+		log.Printf("Warning: git check-ignore failed for %s: %v", relPath, err)
+		p.enabled = false
+		return false
+	}
+	return ignored[dirPath] || ignored[relPath]
 }
 
 // filterGitignored drops candidates that git ignores. Best-effort: outside a
@@ -185,6 +234,56 @@ func isExcluded(relPath string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+// isExcludedDir reports whether relPath names a directory that can be pruned
+// before walking its children. Patterns ending in /** exclude the directory
+// itself too, not just files already enumerated below it.
+func isExcludedDir(relPath string, patterns []string) bool {
+	relPath = strings.TrimSuffix(relPath, "/")
+	if relPath == "" || relPath == "." {
+		return false
+	}
+
+	base := filepath.Base(relPath)
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+
+		if matchGlob(pattern, relPath) || matchGlob(pattern, relPath+"/") {
+			return true
+		}
+
+		if strings.HasSuffix(pattern, "/**") {
+			parent := strings.TrimSuffix(pattern, "/**")
+			if matchGlob(parent, relPath) {
+				return true
+			}
+		}
+
+		if strings.HasSuffix(pattern, "/") {
+			dirPattern := strings.TrimSuffix(pattern, "/")
+			if matchGlob(dirPattern, relPath) {
+				return true
+			}
+		}
+
+		if !strings.Contains(pattern, "/") && matchGlob(pattern, base) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchGlob(pattern, path string) bool {
+	matched, err := doublestar.Match(pattern, path)
+	if err != nil {
+		log.Printf("Warning: invalid exclude pattern %q: %v", pattern, err)
+		return false
+	}
+	return matched
 }
 
 func (s *Scanner) isIncluded(relPath string) bool {
