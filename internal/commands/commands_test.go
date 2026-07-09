@@ -529,6 +529,49 @@ func TestOnboard_NoPersistentPreRun(t *testing.T) {
 	}
 }
 
+func TestOnboardIncludesSkillInstallPromptForAgents(t *testing.T) {
+	dir := t.TempDir()
+	onboardCmd.SetOut(nil)
+	onboardCmd.SetErr(nil)
+	onboardCmd.SetIn(nil)
+	t.Cleanup(func() {
+		onboardCmd.SetOut(nil)
+		onboardCmd.SetErr(nil)
+		onboardCmd.SetIn(nil)
+	})
+
+	stdout, stderr, err := runDocdiff(t, dir, "onboard")
+	if err != nil {
+		t.Fatalf("onboard failed: %v", err)
+	}
+	if !strings.Contains(stdout, "# docdiff") {
+		t.Fatalf("onboard should print instructions, got:\n%s", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("onboard should not write prompts to stderr, got:\n%s", stderr)
+	}
+
+	for _, want := range []string{
+		"Optional Coding-Agent Skill",
+		"ask the user before installing",
+		"Do not write any skill files unless the user says yes.",
+		".claude/skills/docdiff/SKILL.md",
+		".agents/skills/docdiff/SKILL.md",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("onboard output should include %q, got:\n%s", want, stdout)
+		}
+	}
+
+	if !strings.Contains(stdout, docdiffSkillContent) {
+		t.Fatal("onboard output should include the bundled docdiff skill content")
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, ".claude")); !os.IsNotExist(err) {
+		t.Fatalf("onboard should not install skill files directly, stat err=%v", err)
+	}
+}
+
 func TestCheck_WorkingTree(t *testing.T) {
 	dir := setupTestProject(t)
 	initTestEnv(t, dir)

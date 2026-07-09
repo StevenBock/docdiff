@@ -1,10 +1,14 @@
 package commands
 
 import (
+	_ "embed"
 	"fmt"
 
 	"github.com/spf13/cobra"
 )
+
+//go:embed skills/docdiff/SKILL.md
+var docdiffSkillContent string
 
 var onboardCmd = &cobra.Command{
 	Use:   "onboard",
@@ -28,7 +32,11 @@ func init() {
 }
 
 func runOnboard(cmd *cobra.Command, args []string) error {
-	_, err := fmt.Fprint(cmd.OutOrStdout(), onboardText)
+	out := cmd.OutOrStdout()
+	if _, err := fmt.Fprint(out, onboardText); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(out, onboardSkillText, docdiffSkillContent)
 	return err
 }
 
@@ -117,4 +125,25 @@ This project uses docdiff to track documentation freshness. Source files contain
 - Commit the doc and those source files together
 
 --- END DOCDIFF INSTRUCTIONS ---
+`
+
+const onboardSkillText = `
+---
+
+## Optional Coding-Agent Skill
+
+If you are a coding agent reading this output, ask the user before installing
+the bundled docdiff skill. Do not write any skill files unless the user says yes.
+
+Suggested prompt:
+
+    Install the docdiff skill for coding agents into .claude/skills/docdiff/SKILL.md? [y/N]
+
+If the user agrees, create .claude/skills/docdiff/SKILL.md (or the equivalent
+skills directory for this agent harness, such as
+.agents/skills/docdiff/SKILL.md) with this exact content:
+
+~~~markdown
+%s
+~~~
 `

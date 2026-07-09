@@ -165,7 +165,7 @@ Print comprehensive docdiff usage instructions for AI agents.
 docdiff onboard
 ```
 
-Outputs usage instructions and a ready-to-paste snippet for agent instruction files (CLAUDE.md, .github/copilot-instructions.md, .cursorrules, .windsurfrules, AGENTS.md). Works without any project setup — no config file or git repository needed.
+Outputs usage instructions and a ready-to-paste snippet for agent instruction files (CLAUDE.md, .github/copilot-instructions.md, .cursorrules, .windsurfrules, AGENTS.md). It also includes the bundled docdiff coding-agent skill content and tells agents to ask before installing it; `onboard` itself never writes skill files. Works without any project setup — no config file or git repository needed.
 
 ## Configuration
 
