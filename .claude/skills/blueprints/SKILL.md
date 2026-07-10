@@ -34,6 +34,16 @@ Every write is whole-field and returns a content hash — verify round trips aga
 4. Record durable decisions and gotchas as notes as you go.
 5. Do NOT write the working plan — the building agent writes its own.
 
+## Task-cards pipeline
+
+If the blueprint's `pipeline` is `taskcards`, drafting starts the same way: doc, prototypes, and acceptance criteria first. End drafting by decomposing the build into task cards WITH the human. Cards come last, after the doc and acceptance criteria are agreed; don't decompose a moving target.
+
+Propose the decomposition in conversation first: discrete, independently verifiable cards, each sized so a fresh agent could execute it in one verification cycle with no context beyond the blueprint doc and the card itself. A deck over roughly 30 cards is a decomposition smell. Before writing the deck, check coverage: every acceptance criterion must be delivered by at least one card. A criterion with no card is a plan gap you just caught early.
+
+Ask the human which configured agents should work which cards. Designation is their routing preference, never your assumption; leaving cards undesignated is fine. A mistyped agent name errors back with the roster. Once agreed, write the deck with `hangar_create_task_cards`: `title`, `body_md` (what to do and how to verify), `blocked_by` deps, and `designated_agent` where chosen.
+
+Sanity-check the response's ready list: the first ready cards must be foundations, not polish. If polish is ready first, your `blocked_by` direction is inverted; fix it now, while it is cheap. Keep deps minimal and real: A truly cannot start before B. Over-linking serializes the build. Cards are the how; acceptance criteria remain the what, so do not duplicate them. You still never write the working plan, in any pipeline.
+
 ## Guardrails
 
 - Never set the blueprint's status; never overwrite the brief; never write the working plan.

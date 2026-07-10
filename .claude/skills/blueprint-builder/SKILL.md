@@ -34,6 +34,18 @@ Every write is whole-field and returns a content hash — verify round trips aga
 4. Implement it fully: real, working code — no stubs, placeholders, or TODOs unless the plan explicitly calls for them. Tick a plan step (`hangar_check_blueprint_step`) only once its code is written AND verified; tick an acceptance item only once its condition actually holds.
 5. Resuming? Already-checked steps are a previous session's claim — confirm each against the repo before trusting it.
 
+## Task-cards pipeline
+
+If the blueprint's `pipeline` is `taskcards`, do NOT write a working plan — the plan already exists as task cards. Replace steps 3–4 with this card loop:
+
+0. Deck review first: read ALL cards before executing any. The deck was written with less code context than you have now. Recommend and proceed: fix missized open cards yourself by rewriting title/body (never a done card's), note what you changed, and stop for the human only on load-bearing ambiguity. Redecomposing? Cancel with the reason, refile, and re-point the cancelled card's dependents to the replacement.
+1. `hangar_list_task_cards` with status `ready` — cards whose blockers are all done. Your build seed names the configured agent you were spawned as: only take cards designated to you or undesignated. When the only remaining ready cards are designated to a different agent, stop and tell the human which agent the graph is waiting on. The human can always override a designation conversationally.
+2. Take one: mark it `in_progress`, implement it, verify it, commit the card's work (explicit paths), then mark it `done` with a `resolution_note_md`. The note records what you built, files touched, how you verified it, anything surprising, and the commit hash. Per-card commits make a half-done deck resumable; uncommitted work dies with your process. Done or cancelled without a note is rejected. A card waiting on a human decision stays `in_progress` with a note saying what it needs — raise it in conversation and take another ready card meanwhile.
+3. Work you discover that no card covers: if an acceptance criterion needs it, file it as a new card (`discovered_from` = the card you were on); if it is nice-to-have, add a blueprint note and let the human decide. Every open card is mandatory before the build ends, so filing polish inflates the build.
+4. Repeat until no open or in_progress cards remain. A parked waiting-on-human card is not done. Tick acceptance criteria (`hangar_check_blueprint_step`) as each condition actually holds, same as any build.
+
+When `ready` comes back empty but the deck is not done, do not spin: list all cards and say what is blocked on what. An `in_progress` card is someone else's; leave it unless the human hands it to you. When taking one over, re-verify its partial work against the repo first because resolution notes cite per-card commits. Finished cards that unblock another agent's designated cards? Message that agent (`hangar_message_agent`) if it is alive; otherwise tell the human.
+
 ## Landing
 
 Landing is conversational — wait for the human to say land, then:
