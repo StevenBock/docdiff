@@ -22,7 +22,7 @@ var rootCmd = &cobra.Command{
 and detects when code changes require documentation updates.
 
 Use @doc annotations in source file comments to link code to docs.
-Example: // @doc docs/API.md`,
+Example: a comment containing "@doc docs/API.md"`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

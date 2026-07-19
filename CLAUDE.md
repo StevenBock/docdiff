@@ -92,6 +92,7 @@ history when staleness is computed.
 - `lint` - Annotation-map hygiene, independent of staleness (`--json`). Problems (non-zero exit): scope-to-eof (a file's only annotation is scoped, so its region runs to EOF — fix with `@doc -`), mixed-ownership (same doc linked whole-file + scoped in one file), fan-out (≥ `lint.fan_out_threshold` distinct whole-file links on one file, default 3), scope-drift (a doc using section markers — HTML comments of the form `@scope <name>` — whose markers don't match code annotation scopes, both directions; marker extraction in `scopeMarkers`, retained as `Result.DocScopeMarkers`; docs without markers are never checked, and section-granular staleness is deliberately NOT built). Advisory (never gates): vestigial-link (a doc read as content never mentions a file linking to it). Doc reference sets come from the scanner (`Result.DocRefs`), which reads every markdown doc under `docs_directory` PLUS every linked doc elsewhere (CLAUDE.md, README.md, ...).
 - `suggest` - Group orphaned files by likely owning doc (directory-vote heuristic) and emit `@doc` annotation lines in batches (`--json`)
 - `graph` - Output doc-to-file relationship graph (DOT or `--mermaid`); stale links highlighted
+- `stats` - Per-doc ack-vs-edit ratio over history (`--json`): replays `.docdiff-acks.json` across its git history (floor transitions count as acks) against `git rev-list --count` of doc edits. High ratio → candidate for `gate: structural` or deletion. Read-only.
 
 ## Configuration
 

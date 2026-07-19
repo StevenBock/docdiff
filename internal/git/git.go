@@ -154,6 +154,30 @@ func (g *Git) LastCommit(path string) (string, error) {
 	return g.run("log", "-1", "--format=%h", "--", path)
 }
 
+// FileHistory returns the hashes of commits on HEAD touching path, oldest
+// first. Empty when the path has no history.
+func (g *Git) FileHistory(path string) ([]string, error) {
+	out, err := g.run("log", "--format=%H", "--reverse", "HEAD", "--", path)
+	if err != nil {
+		return nil, err
+	}
+	return splitNonEmpty(out), nil
+}
+
+// ShowFileAt returns the content of path at ref (trailing whitespace trimmed).
+func (g *Git) ShowFileAt(ref, path string) (string, error) {
+	return g.run("show", ref+":"+path)
+}
+
+// CommitCount returns the number of commits on HEAD touching path.
+func (g *Git) CommitCount(path string) (int, error) {
+	out, err := g.run("rev-list", "--count", "HEAD", "--", path)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(out)
+}
+
 // IsAncestor reports whether commit a is an ancestor of commit b (a is older).
 // Used to pick the newer of a doc's last commit and an ack floor. A clean
 // "not an ancestor" (exit 1) is not an error; unknown commits are.

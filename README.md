@@ -183,6 +183,17 @@ and never affect the exit code.
 docdiff lint [--json]
 ```
 
+### `docdiff stats`
+
+Per-doc ack-vs-edit ratios over the whole history: how often a doc's linked
+code was acked (reviewed, no edit) versus how often the doc itself was edited.
+A doc that is mostly acked tracks code it doesn't describe — a candidate for a
+`gate: structural` policy or deletion. Read-only.
+
+```bash
+docdiff stats [--json]
+```
+
 ### `docdiff onboard`
 
 Print comprehensive docdiff usage instructions for AI agents.
