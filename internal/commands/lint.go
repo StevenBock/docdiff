@@ -33,6 +33,10 @@ Problems (non-zero exit):
   fan-out          one file whole-file-links many docs, so every change flags
                    them all (threshold: lint.fan_out_threshold, default 3)
 
+  scope-drift      a doc that uses '<!-- @scope name -->' section markers has
+                   markers with no matching code scope, or code scopes with no
+                   marker (only docs with at least one marker are checked)
+
 Advisory (never affects the exit code):
   vestigial-link   a doc never mentions a file that links to it — the link may
                    be vestigial, or the doc is genuinely high-level`,
@@ -174,6 +178,58 @@ func lintFindings(res *scanner.Result, tag string, fanOutThreshold int) []lintFi
 				Message: fmt.Sprintf("%s whole-file-links %d docs (%s); any change flags them all — scope the links (#name) or split the file",
 					file, len(docs), strings.Join(docs, ", ")),
 			})
+		}
+	}
+
+	// scope-drift: doc-side section markers (<!-- @scope name -->) vs code
+	// annotation scopes, both directions. Markers are opt-in per doc: a doc
+	// with no markers is never checked, but once it uses them, keeping them
+	// matched to code scopes is the contract.
+	scopeLocs := make(map[string]map[string]string) // doc -> scope -> "file:line"
+	for file, ann := range res.Annotations {
+		for _, d := range ann.Details {
+			if d.Scope == "" || d.Path == language.Terminator {
+				continue
+			}
+			if scopeLocs[d.Path] == nil {
+				scopeLocs[d.Path] = make(map[string]string)
+			}
+			if _, ok := scopeLocs[d.Path][d.Scope]; !ok {
+				scopeLocs[d.Path][d.Scope] = fmt.Sprintf("%s:%d", file, d.Line)
+			}
+		}
+	}
+	for doc, markers := range res.DocScopeMarkers {
+		if len(markers) == 0 {
+			continue
+		}
+		markerSet := make(map[string]bool, len(markers))
+		for _, m := range markers {
+			markerSet[m] = true
+			if _, ok := scopeLocs[doc][m]; !ok {
+				out = append(out, lintFinding{
+					Rule: "scope-drift",
+					Doc:  doc,
+					Message: fmt.Sprintf("%s marks section #%s but no code annotation targets it with that scope — the scope was renamed or removed; update or delete the marker",
+						doc, m),
+				})
+			}
+		}
+		scopes := make([]string, 0, len(scopeLocs[doc]))
+		for s := range scopeLocs[doc] {
+			scopes = append(scopes, s)
+		}
+		sort.Strings(scopes)
+		for _, s := range scopes {
+			if !markerSet[s] {
+				out = append(out, lintFinding{
+					Rule: "scope-drift",
+					Doc:  doc,
+					File: scopeLocs[doc][s],
+					Message: fmt.Sprintf("code scope #%s (%s) has no '<!-- @scope %s -->' marker in %s — add the marker or rename the scope",
+						s, scopeLocs[doc][s], s, doc),
+				})
+			}
 		}
 	}
 

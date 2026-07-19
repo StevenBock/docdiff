@@ -172,8 +172,12 @@ Problems exit non-zero: a file whose **only** annotation is scoped (its region
 silently runs to end of file — close it with `@doc -`), a file linking the same
 doc both whole-file and scoped (whole-file wins, the scopes are dead), and
 fan-out (one file whole-file-linking ≥ N docs; `lint.fan_out_threshold`,
-default 3). Vestigial-link findings — a doc that never mentions a file linking
-to it — are advisory only and never affect the exit code.
+default 3), and scope drift — a doc using section markers (HTML comments of
+the form `@scope <name>`) whose markers no longer match the code annotation
+scopes targeting it (both directions; docs without markers are never
+checked). Vestigial-link
+findings — a doc that never mentions a file linking to it — are advisory only
+and never affect the exit code.
 
 ```bash
 docdiff lint [--json]

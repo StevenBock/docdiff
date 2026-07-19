@@ -80,6 +80,85 @@ func TestLintFindings(t *testing.T) {
 	}
 }
 
+func TestLintFindings_ScopeDrift(t *testing.T) {
+	res := scanner.NewResult()
+
+	// Code scopes for docs/A.md: #kept and #renamed.
+	res.AddAnnotation("src/a.go", []language.DocAnnotation{
+		{Path: "docs/A.md", Scope: "kept", Line: 2},
+		{Path: "docs/A.md", Scope: "renamed", Line: 8},
+	}, "go")
+	// Doc marks #kept (match) and #gone (no code scope); #renamed is unmarked.
+	res.DocScopeMarkers["docs/A.md"] = []string{"kept", "gone"}
+
+	// A doc with code scopes but NO markers: never checked (opt-in).
+	res.AddAnnotation("src/b.go", []language.DocAnnotation{
+		{Path: "docs/B.md", Scope: "whatever", Line: 2},
+	}, "go")
+	res.DocScopeMarkers["docs/B.md"] = []string{}
+
+	var drift []lintFinding
+	for _, f := range lintFindings(res, "@doc", 3) {
+		if f.Rule == "scope-drift" {
+			drift = append(drift, f)
+		}
+	}
+	if len(drift) != 2 {
+		t.Fatalf("scope-drift = %+v, want exactly 2 findings (marker #gone, code #renamed)", drift)
+	}
+	msgs := drift[0].Message + "\n" + drift[1].Message
+	if !strings.Contains(msgs, "#gone") || !strings.Contains(msgs, "#renamed") {
+		t.Errorf("expected findings for #gone and #renamed, got:\n%s", msgs)
+	}
+	for _, f := range drift {
+		if f.Advisory {
+			t.Errorf("scope-drift should be a problem, not advisory: %+v", f)
+		}
+		if strings.Contains(f.Message, "#kept") {
+			t.Errorf("matched scope #kept must not be flagged: %+v", f)
+		}
+	}
+}
+
+func TestScopeDrift_Integration(t *testing.T) {
+	dir := setupTestProject(t)
+
+	os.WriteFile(filepath.Join(dir, "docs", "API.md"), []byte(`# API Docs
+
+<!-- @scope alpha -->
+Alpha section.
+
+<!-- @scope ghost -->
+Ghost section.
+`), 0644)
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md #alpha
+func Handler() {}
+
+// @doc -
+func Helper() {}
+`), 0644)
+	commitAll(t, dir, "Add scoped doc and code")
+
+	initTestEnv(t, dir)
+	lintJSON = false
+
+	var stdout bytes.Buffer
+	lintCmd.SetOut(&stdout)
+	err := lintCmd.RunE(lintCmd, nil)
+	if err == nil {
+		t.Fatalf("ghost marker should be a lint problem, got:\n%s", stdout.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "[scope-drift]") || !strings.Contains(out, "#ghost") {
+		t.Errorf("expected scope-drift for #ghost, got:\n%s", out)
+	}
+	if strings.Contains(out, "#alpha") {
+		t.Errorf("matched scope #alpha must not drift, got:\n%s", out)
+	}
+}
+
 func TestLint_Integration(t *testing.T) {
 	dir := setupTestProject(t)
 

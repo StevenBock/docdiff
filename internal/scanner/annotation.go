@@ -25,6 +25,10 @@ type Result struct {
 	// files it mentions. A doc present with an empty set genuinely mentions
 	// nothing; a doc absent from the map was never read (missing/non-markdown).
 	DocRefs map[string]map[string]bool
+	// DocScopeMarkers maps each doc read as content to its section markers
+	// (`<!-- @scope name -->`), in order of appearance, deduplicated. Markers
+	// are opt-in doc-side mirrors of code annotation scopes.
+	DocScopeMarkers map[string][]string
 }
 
 func NewResult() *Result {
@@ -35,6 +39,7 @@ func NewResult() *Result {
 		Errors:           make([]error, 0),
 		UndocumentedRefs: make([]UndocumentedRef, 0),
 		DocRefs:          make(map[string]map[string]bool),
+		DocScopeMarkers:  make(map[string][]string),
 	}
 }
 

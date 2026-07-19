@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -339,6 +340,7 @@ func (s *Scanner) scanDocsForRefs(rootDir string, result *Result) error {
 			result.AddUndocumentedRef(relDocPath, ref.Path, ref.Line)
 		}
 		result.DocRefs[relDocPath] = refSet
+		result.DocScopeMarkers[relDocPath] = scopeMarkers(content)
 	}
 
 	var walkErr error
@@ -380,4 +382,21 @@ func (s *Scanner) scanDocsForRefs(rootDir string, result *Result) error {
 func isMarkdown(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".md" || ext == ".markdown"
+}
+
+var scopeMarkerPattern = regexp.MustCompile(`<!--\s*@scope\s+(\S+?)\s*-->`)
+
+// scopeMarkers extracts a doc's section markers (`<!-- @scope name -->`), in
+// order, deduplicated. They mirror code annotation scopes on the doc side.
+func scopeMarkers(content []byte) []string {
+	markers := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, m := range scopeMarkerPattern.FindAllSubmatch(content, -1) {
+		name := string(m[1])
+		if !seen[name] {
+			seen[name] = true
+			markers = append(markers, name)
+		}
+	}
+	return markers
 }
