@@ -8,6 +8,12 @@ import (
 	"strconv"
 )
 
+// Terminator is the annotation path that closes the current scoped region
+// without assigning the code below it to any doc (`@doc -`). It stays in a
+// file's Details so region computation sees it as a boundary, but it is never
+// a doc link.
+const Terminator = "-"
+
 // DocAnnotation is a single @doc reference with its position and optional scope.
 // Scope (an optional "#name" suffix, e.g. `@doc docs/X.md #settings.general`)
 // narrows ownership: a scoped annotation owns the code region from its line to

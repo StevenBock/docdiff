@@ -38,7 +38,7 @@ The `internal/language` package uses a strategy pattern for extensibility:
 
 **To add a new language:** Implement `Strategy` interface in a new file, then register it in `DefaultRegistry()` in `registry.go`.
 
-**Annotation scopes.** `@doc <path>` links a whole file to a doc. `@doc <path> #<scope>` (a `#`-prefixed suffix, e.g. `@doc docs/CORE.md #settings.general`) narrows ownership: the scoped annotation owns the code region from its line down to the next annotation, so a change elsewhere in a central/mirror file doesn't flag it. `check` matches changed diff hunks against these regions (diff-backed modes only — `--files` and untracked/new files fall back to whole-file). Extraction lives in `extractDetailed`/`ExtractDetailed` on `BaseStrategy` (inherited by every language for free); the region + hunk-overlap logic is in `internal/commands/scope.go`.
+**Annotation scopes.** `@doc <path>` links a whole file to a doc. `@doc <path> #<scope>` (a `#`-prefixed suffix, e.g. `@doc docs/CORE.md #settings.general`) narrows ownership: the scoped annotation owns the code region from its line down to the next annotation, so a change elsewhere in a central/mirror file doesn't flag it. `@doc -` is a region terminator: it closes the current scoped region without assigning the code below it to any doc (`language.Terminator`; kept in `Details` as a boundary, excluded from `FilesByDoc`). `check` matches changed diff hunks against these regions (diff-backed modes only — `--files` and untracked/new files fall back to whole-file). Extraction lives in `extractDetailed`/`ExtractDetailed` on `BaseStrategy` (inherited by every language for free); the region + hunk-overlap logic is in `internal/commands/scope.go`.
 
 ### File Type Detection
 

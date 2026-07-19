@@ -366,6 +366,35 @@ func TestResult_AddAnnotation(t *testing.T) {
 	}
 }
 
+func TestResult_AddAnnotation_Terminator(t *testing.T) {
+	r := NewResult()
+
+	// `@doc -` closes a scoped region: kept in Details (region boundary) but
+	// never a doc link.
+	r.AddAnnotation("src/central.go", []language.DocAnnotation{
+		{Path: "docs/API.md", Scope: "x", Line: 2},
+		{Path: language.Terminator, Line: 6},
+	}, "go")
+
+	ann := r.Annotations["src/central.go"]
+	if len(ann.DocPaths) != 1 || ann.DocPaths[0] != "docs/API.md" {
+		t.Errorf("DocPaths = %v, want only docs/API.md", ann.DocPaths)
+	}
+	if len(ann.Details) != 2 {
+		t.Errorf("Details = %v, want the terminator retained", ann.Details)
+	}
+	if _, ok := r.FilesByDoc[language.Terminator]; ok {
+		t.Error("terminator must not appear in FilesByDoc")
+	}
+
+	// A file with ONLY terminators links no docs and stays orphaned.
+	r2 := NewResult()
+	r2.AddAnnotation("src/plain.go", []language.DocAnnotation{{Path: language.Terminator, Line: 1}}, "go")
+	if _, ok := r2.Annotations["src/plain.go"]; ok {
+		t.Error("terminator-only file should not be registered as annotated")
+	}
+}
+
 func TestResult_AddFile(t *testing.T) {
 	r := NewResult()
 

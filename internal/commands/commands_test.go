@@ -448,6 +448,63 @@ func Beta() { betaChanged() }
 	}
 }
 
+func TestCheck_TerminatorEndsScopedRegion(t *testing.T) {
+	dir := setupTestProject(t)
+
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/API.md #alpha
+func Alpha() {}
+
+// @doc -
+func Unowned() {}
+`), 0644)
+	commitAll(t, dir, "Add central file with terminated region")
+
+	// Change only code BELOW the terminator: no doc owns it.
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/API.md #alpha
+func Alpha() {}
+
+// @doc -
+func Unowned() { changed() }
+`), 0644)
+
+	initTestEnv(t, dir)
+	checkStaged = false
+	checkJSON = false
+	checkNoBacklinks = true
+	checkFiles = nil
+	defer func() {
+		checkNoBacklinks = false
+		checkFiles = nil
+	}()
+
+	var stdout bytes.Buffer
+	checkCmd.SetOut(&stdout)
+	if err := checkCmd.RunE(checkCmd, nil); err != nil {
+		t.Fatalf("change below '@doc -' must not flag any doc, got %v:\n%s", err, stdout.String())
+	}
+	if strings.Contains(stdout.String(), "docs/API.md") {
+		t.Errorf("API.md should not be affected, got:\n%s", stdout.String())
+	}
+
+	// Sanity: a change INSIDE the scoped region still flags the doc.
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/API.md #alpha
+func Alpha() { changedInScope() }
+
+// @doc -
+func Unowned() {}
+`), 0644)
+	stdout.Reset()
+	if err := checkCmd.RunE(checkCmd, nil); err == nil {
+		t.Fatalf("change inside the scoped region should flag the doc, got:\n%s", stdout.String())
+	}
+}
+
 func TestAck_UnknownDoc(t *testing.T) {
 	dir := setupTestProject(t)
 	initTestEnv(t, dir)

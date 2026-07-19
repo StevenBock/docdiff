@@ -37,10 +37,16 @@ func (r *Result) AddAnnotation(filePath string, details []language.DocAnnotation
 	docPaths := make([]string, 0, len(details))
 	seen := make(map[string]bool)
 	for _, d := range details {
+		if d.Path == language.Terminator {
+			continue // region boundary, not a doc link
+		}
 		if !seen[d.Path] {
 			seen[d.Path] = true
 			docPaths = append(docPaths, d.Path)
 		}
+	}
+	if len(docPaths) == 0 {
+		return // only terminators: the file links no docs (stays orphaned)
 	}
 
 	r.Annotations[filePath] = &Annotation{
