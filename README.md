@@ -134,12 +134,14 @@ fold that ack into the current HEAD commit.
 
 ```bash
 docdiff ack <doc>... [--to <ref>] [--amend]
+docdiff ack --required [--amend]
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--to <ref>` | Floor commit to ack at (HEAD, branch, or sha); default HEAD |
 | `--amend` | Fold `.docdiff-acks.json` into the current HEAD commit |
+| `--required` | Ack exactly the docs `check` would have flagged as Required for HEAD's own diff (and that are still stale) — "I reviewed everything my last commit affected" in one command |
 
 ### `docdiff suggest`
 

@@ -311,6 +311,17 @@ func (g *Git) ShowCommitDiff(hash string, files []string) (string, error) {
 	return g.run(args...)
 }
 
+// ShowCommitHunks returns, per file, the new-side line ranges a single commit
+// changed (its diff against its parent), classified like ChangedHunksSince.
+// Used by `ack --required` to replay check's scope matching over HEAD's own diff.
+func (g *Git) ShowCommitHunks(hash string, tag string) (map[string][]LineRange, error) {
+	out, err := g.run("show", "--format=", "--unified=0", "--no-color", hash)
+	if err != nil {
+		return nil, err
+	}
+	return parseHunks(out, tag), nil
+}
+
 func (g *Git) FilesChangedInCommit(hash string, filterFiles []string) ([]string, error) {
 	args := []string{"diff-tree", "--no-commit-id", "--name-only", "-r", hash}
 

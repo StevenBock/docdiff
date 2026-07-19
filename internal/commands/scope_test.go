@@ -19,15 +19,20 @@ func TestFileHitsDoc(t *testing.T) {
 	}
 	hunks := map[string][]git.LineRange{"central.go": {{Start: 6, End: 6}}} // change in mobile region
 
-	if fileHitsDoc(ann, "docs/GENERAL.md", hunks) {
+	if hit, _ := fileHitsDoc(ann, "docs/GENERAL.md", hunks); hit {
 		t.Error("GENERAL should NOT be hit by a change at line 6")
 	}
-	if !fileHitsDoc(ann, "docs/MOBILE.md", hunks) {
+	hit, hits := fileHitsDoc(ann, "docs/MOBILE.md", hunks)
+	if !hit {
 		t.Error("MOBILE should be hit by a change at line 6")
+	}
+	// The overlapping hunk is returned as provenance.
+	if len(hits) != 1 || hits[0].Scope != "mobile" || hits[0].AnnLine != 5 || hits[0].Start != 6 || hits[0].End != 6 {
+		t.Errorf("scope hits = %+v, want one #mobile hit at lines 6-6", hits)
 	}
 
 	// No hunk info for the file (untracked/new or --files): fall back to hit.
-	if !fileHitsDoc(ann, "docs/GENERAL.md", map[string][]git.LineRange{}) {
+	if hit, _ := fileHitsDoc(ann, "docs/GENERAL.md", map[string][]git.LineRange{}); !hit {
 		t.Error("missing hunk info must fall back to whole-file (hit)")
 	}
 
@@ -36,7 +41,7 @@ func TestFileHitsDoc(t *testing.T) {
 		FilePath: "plain.go",
 		Details:  []language.DocAnnotation{{Path: "docs/PLAIN.md", Line: 3}},
 	}
-	if !fileHitsDoc(bare, "docs/PLAIN.md", map[string][]git.LineRange{"plain.go": {{Start: 99, End: 99}}}) {
+	if hit, _ := fileHitsDoc(bare, "docs/PLAIN.md", map[string][]git.LineRange{"plain.go": {{Start: 99, End: 99}}}); !hit {
 		t.Error("unscoped annotation should be hit by any change")
 	}
 }

@@ -309,6 +309,145 @@ func Handler() { /* reviewed via amend ack */ }
 	}
 }
 
+func TestAckRequired(t *testing.T) {
+	dir := setupTestProject(t)
+
+	// Code-only commit: docs/API.md becomes stale and check would have
+	// required it for this diff.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { /* reviewed, doc fine */ }
+`), 0644)
+	commitAll(t, dir, "Change handler only")
+
+	initTestEnv(t, dir)
+	ackTo = ""
+	ackAmend = false
+	ackRequired = true
+	defer func() { ackRequired = false }()
+
+	var ackOut bytes.Buffer
+	ackCmd.SetOut(&ackOut)
+	if err := ackCmd.RunE(ackCmd, nil); err != nil {
+		t.Fatalf("ack --required failed: %v", err)
+	}
+	if !strings.Contains(ackOut.String(), "Acked docs/API.md") {
+		t.Fatalf("ack --required should ack docs/API.md, got:\n%s", ackOut.String())
+	}
+
+	reportStale = false
+	reportOrphaned = false
+	var stdout bytes.Buffer
+	reportCmd.SetOut(&stdout)
+	reportCmd.RunE(reportCmd, nil)
+	if strings.Contains(stdout.String(), "STALE DOCS") {
+		t.Errorf("doc acked via --required should not be stale, got:\n%s", stdout.String())
+	}
+
+	// Re-running finds nothing left to ack.
+	ackOut.Reset()
+	if err := ackCmd.RunE(ackCmd, nil); err != nil {
+		t.Fatalf("second ack --required failed: %v", err)
+	}
+	if !strings.Contains(ackOut.String(), "Nothing to ack") {
+		t.Errorf("second run should have nothing to ack, got:\n%s", ackOut.String())
+	}
+}
+
+func TestAckRequired_SkipsUpdatedDoc(t *testing.T) {
+	dir := setupTestProject(t)
+
+	// Code and doc committed together: nothing was required for that commit.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { /* changed */ }
+`), 0644)
+	os.WriteFile(filepath.Join(dir, "docs", "API.md"), []byte("# API Docs\n\nupdated\n"), 0644)
+	commitAll(t, dir, "Change handler and doc together")
+
+	initTestEnv(t, dir)
+	ackTo = ""
+	ackAmend = false
+	ackRequired = true
+	defer func() { ackRequired = false }()
+
+	var ackOut bytes.Buffer
+	ackCmd.SetOut(&ackOut)
+	if err := ackCmd.RunE(ackCmd, nil); err != nil {
+		t.Fatalf("ack --required failed: %v", err)
+	}
+	if !strings.Contains(ackOut.String(), "Nothing to ack") {
+		t.Errorf("doc updated with its code should not be acked, got:\n%s", ackOut.String())
+	}
+}
+
+func TestAckRequired_RejectsDocArgs(t *testing.T) {
+	dir := setupTestProject(t)
+	initTestEnv(t, dir)
+
+	ackRequired = true
+	defer func() { ackRequired = false }()
+	if err := ackCmd.RunE(ackCmd, []string{"docs/API.md"}); err == nil {
+		t.Error("ack --required with doc args should fail")
+	}
+}
+
+func TestCheck_ScopeHitProvenance(t *testing.T) {
+	dir := setupTestProject(t)
+
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/API.md #alpha
+func Alpha() {}
+
+// @doc docs/GUIDE.md #beta
+func Beta() {}
+`), 0644)
+	commitAll(t, dir, "Add central file with scoped annotations")
+
+	// Touch only the #beta region.
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/API.md #alpha
+func Alpha() {}
+
+// @doc docs/GUIDE.md #beta
+func Beta() { betaChanged() }
+`), 0644)
+
+	initTestEnv(t, dir)
+	checkStaged = false
+	checkJSON = false
+	checkNoBacklinks = true
+	checkFiles = nil
+	defer func() {
+		checkNoBacklinks = false
+		checkFiles = nil
+	}()
+
+	var stdout bytes.Buffer
+	checkCmd.SetOut(&stdout)
+	err := checkCmd.RunE(checkCmd, nil)
+	if err == nil {
+		t.Fatal("check should require docs/GUIDE.md")
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "docs/GUIDE.md: needs update") {
+		t.Fatalf("GUIDE should be required, got:\n%s", out)
+	}
+	if strings.Contains(out, "docs/API.md: needs update") {
+		t.Fatalf("API (untouched scope) should not be required, got:\n%s", out)
+	}
+	if !strings.Contains(out, "lines 7–7 hit #beta") {
+		t.Errorf("expected scope-hit line provenance, got:\n%s", out)
+	}
+	if !strings.Contains(out, "> func Beta() { betaChanged() }") {
+		t.Errorf("expected changed-line excerpt, got:\n%s", out)
+	}
+}
+
 func TestAck_UnknownDoc(t *testing.T) {
 	dir := setupTestProject(t)
 	initTestEnv(t, dir)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -59,10 +60,19 @@ type checkResult struct {
 }
 
 type annotationProvenance struct {
-	File  string `json:"file"`
-	Line  int    `json:"line,omitempty"`
-	Kind  string `json:"kind"`
-	Scope string `json:"scope,omitempty"`
+	File  string    `json:"file"`
+	Line  int       `json:"line,omitempty"`
+	Kind  string    `json:"kind"`
+	Scope string    `json:"scope,omitempty"`
+	Hits  []provHit `json:"hits,omitempty"`
+}
+
+// provHit is a changed line range that overlapped a scoped annotation's owned
+// region, with a short excerpt so update-vs-ack is decidable from check output.
+type provHit struct {
+	Start   int      `json:"start"`
+	End     int      `json:"end"`
+	Excerpt []string `json:"excerpt,omitempty"`
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {
@@ -116,6 +126,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	seenWarnings := make(map[string]bool)
 	for doc, files := range scanResult.FilesByDoc {
 		var linkedChanged, annOnlyLinked []string
+		hitsByFile := make(map[string][]scopeHit)
 		for _, f := range files {
 			if !inChange[f] {
 				continue
@@ -124,8 +135,11 @@ func runCheck(cmd *cobra.Command, args []string) error {
 				annOnlyLinked = append(annOnlyLinked, f)
 				continue
 			}
-			if fileHitsDoc(scanResult.Annotations[f], doc, hunks) {
+			if hit, hits := fileHitsDoc(scanResult.Annotations[f], doc, hunks); hit {
 				linkedChanged = append(linkedChanged, f)
+				if len(hits) > 0 {
+					hitsByFile[f] = hits
+				}
 			}
 		}
 		if len(linkedChanged) > 0 && !inChange[doc] {
@@ -138,7 +152,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 				sort.Strings(annOnlyLinked)
 				provenance := make([]annotationProvenance, 0)
 				for _, f := range annOnlyLinked {
-					provenance = append(provenance, provenanceForDoc(scanResult.Annotations[f], doc, f)...)
+					provenance = append(provenance, provenanceForDoc(scanResult.Annotations[f], doc, f, nil)...)
 				}
 				ownership = append(ownership, checkResult{
 					Doc:             doc,
@@ -160,7 +174,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		}
 		provenance := make([]annotationProvenance, 0)
 		for _, f := range linkedChanged {
-			provenance = append(provenance, provenanceForDoc(scanResult.Annotations[f], doc, f)...)
+			provenance = append(provenance, provenanceForDoc(scanResult.Annotations[f], doc, f, hitsByFile[f])...)
 			for _, warning := range annotationWarnings(scanResult.Annotations[f], doc) {
 				if !seenWarnings[warning] {
 					seenWarnings[warning] = true
@@ -396,6 +410,12 @@ func writeProvenance(out io.Writer, r checkResult) {
 		switch {
 		case p.Kind == "scoped":
 			fmt.Fprintf(out, "    via %s:%d scoped %s #%s\n", p.File, p.Line, cfg.AnnotationTag, p.Scope)
+			for _, h := range p.Hits {
+				fmt.Fprintf(out, "      lines %d–%d hit #%s\n", h.Start, h.End, p.Scope)
+				for _, ln := range h.Excerpt {
+					fmt.Fprintf(out, "        > %s\n", ln)
+				}
+			}
 		case p.Line > 0:
 			fmt.Fprintf(out, "    via %s:%d whole-file %s\n", p.File, p.Line, cfg.AnnotationTag)
 		default:
@@ -404,9 +424,32 @@ func writeProvenance(out io.Writer, r checkResult) {
 	}
 }
 
-func provenanceForDoc(ann *scanner.Annotation, doc, file string) []annotationProvenance {
+const hitExcerptMaxLines = 3
+
+func provenanceForDoc(ann *scanner.Annotation, doc, file string, hits []scopeHit) []annotationProvenance {
 	if ann == nil {
 		return []annotationProvenance{{File: file, Kind: "unknown annotation"}}
+	}
+
+	var fileLines []string // lazily loaded for excerpts
+	excerpt := func(start, end int) []string {
+		if fileLines == nil {
+			data, err := os.ReadFile(filepath.Join(rootDir, file))
+			if err != nil {
+				return nil
+			}
+			fileLines = strings.Split(string(data), "\n")
+		}
+		if end > start+hitExcerptMaxLines-1 {
+			end = start + hitExcerptMaxLines - 1
+		}
+		var out []string
+		for i := start; i <= end && i <= len(fileLines); i++ {
+			if i >= 1 {
+				out = append(out, fileLines[i-1])
+			}
+		}
+		return out
 	}
 
 	out := make([]annotationProvenance, 0)
@@ -418,12 +461,18 @@ func provenanceForDoc(ann *scanner.Annotation, doc, file string) []annotationPro
 		if d.Scope != "" {
 			kind = "scoped"
 		}
-		out = append(out, annotationProvenance{
+		p := annotationProvenance{
 			File:  file,
 			Line:  d.Line,
 			Kind:  kind,
 			Scope: d.Scope,
-		})
+		}
+		for _, h := range hits {
+			if h.AnnLine == d.Line {
+				p.Hits = append(p.Hits, provHit{Start: h.Start, End: h.End, Excerpt: excerpt(h.Start, h.End)})
+			}
+		}
+		out = append(out, p)
 	}
 	if len(out) == 0 {
 		return []annotationProvenance{{File: file, Kind: "unknown annotation"}}
