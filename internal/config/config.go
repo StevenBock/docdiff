@@ -20,6 +20,14 @@ type Config struct {
 	CI               CIConfig                  `yaml:"ci" json:"ci"`
 	Lint             LintConfig                `yaml:"lint" json:"lint"`
 	Docs             map[string]DocPolicy      `yaml:"docs" json:"docs"`
+	Check            CheckConfig               `yaml:"check" json:"check"`
+}
+
+type CheckConfig struct {
+	// Scope sets check's default changed-set source for this repo: "staged"
+	// or "working-tree" (the built-in default). A deterministic per-repo
+	// default — check never switches scope based on tree state.
+	Scope string `yaml:"scope" json:"scope"`
 }
 
 // DocPolicy is per-doc behavior declared in the config's `docs:` map.

@@ -232,6 +232,12 @@ ci:
 lint:
   fan_out_threshold: 3
 
+# Pin check's default scope for this repo ("staged" or "working-tree").
+# check also prints an info note when the other scope has changes it
+# isn't looking at; it never switches scope on its own.
+check:
+  scope: working-tree
+
 # Per-doc policies. `gate: structural` inverts what flags the doc: annotation
 # map changes and linked-file add/delete/rename gate; body edits do NOT. For
 # docs that inventory files (module maps, ownership indexes) rather than

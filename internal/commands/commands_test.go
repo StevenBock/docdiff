@@ -505,6 +505,94 @@ func Unowned() {}
 	}
 }
 
+func TestCheck_ScopeNotes(t *testing.T) {
+	dir := setupTestProject(t)
+
+	// Stage one change, leave another outside the index.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { staged() }
+`), 0644)
+	runGit(t, dir, "add", "src/handler.go")
+	os.WriteFile(filepath.Join(dir, "src", "util.go"), []byte(`package main
+
+func Util() { unstaged() }
+`), 0644)
+
+	initTestEnv(t, dir)
+	checkJSON = false
+	checkNoBacklinks = true
+	checkFiles = nil
+	defer func() {
+		checkNoBacklinks = false
+		checkFiles = nil
+	}()
+
+	// Staged mode: the unstaged util.go change is ignored — say so.
+	checkStaged = true
+	var stdout bytes.Buffer
+	checkCmd.SetOut(&stdout)
+	checkCmd.RunE(checkCmd, nil)
+	if !strings.Contains(stdout.String(), "1 changed file(s) outside the index ignored") {
+		t.Errorf("staged mode should note ignored working-tree files, got:\n%s", stdout.String())
+	}
+
+	// Working-tree mode with staged changes: the mirror note.
+	checkStaged = false
+	stdout.Reset()
+	checkCmd.RunE(checkCmd, nil)
+	if !strings.Contains(stdout.String(), "1 file(s) are staged; working-tree scope checks them together") {
+		t.Errorf("working-tree mode should note staged files, got:\n%s", stdout.String())
+	}
+}
+
+func TestCheck_ConfigScopeStaged(t *testing.T) {
+	dir := setupTestProject(t)
+	os.WriteFile(filepath.Join(dir, ".docdiff.yaml"), []byte("check:\n  scope: staged\n"), 0644)
+
+	// An unstaged change only: with scope pinned to staged, check sees nothing.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { unstaged() }
+`), 0644)
+
+	initTestEnv(t, dir)
+	checkStaged = false
+	checkJSON = false
+	checkNoBacklinks = true
+	checkFiles = nil
+	defer func() {
+		checkNoBacklinks = false
+		checkFiles = nil
+	}()
+
+	var stdout bytes.Buffer
+	checkCmd.SetOut(&stdout)
+	if err := checkCmd.RunE(checkCmd, nil); err != nil {
+		t.Fatalf("config-scoped staged check should pass with nothing staged, got %v:\n%s", err, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "staged") {
+		t.Errorf("output should reflect the staged scope, got:\n%s", stdout.String())
+	}
+}
+
+func TestCheck_ConfigScopeInvalid(t *testing.T) {
+	dir := setupTestProject(t)
+	os.WriteFile(filepath.Join(dir, ".docdiff.yaml"), []byte("check:\n  scope: bogus\n"), 0644)
+
+	initTestEnv(t, dir)
+	checkStaged = false
+	checkJSON = false
+	checkFiles = nil
+	defer func() { checkFiles = nil }()
+
+	if err := checkCmd.RunE(checkCmd, nil); err == nil || !strings.Contains(err.Error(), "check.scope") {
+		t.Errorf("invalid check.scope should error, got: %v", err)
+	}
+}
+
 func TestAck_UnknownDoc(t *testing.T) {
 	dir := setupTestProject(t)
 	initTestEnv(t, dir)

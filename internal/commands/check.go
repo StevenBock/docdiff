@@ -270,6 +270,9 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	if checkJSON {
 		writeCheckJSON(out, source, results, ownership, undocRefs, unrelatedStale, needsUpdate, warnings)
 	} else {
+		if note := scopeNote(g, source, changed); note != "" {
+			fmt.Fprintln(out, note)
+		}
 		writeCheckHuman(out, source, results, ownership, undocRefs, unrelatedStale, needsUpdate, warnings)
 	}
 
@@ -280,6 +283,9 @@ func runCheck(cmd *cobra.Command, args []string) error {
 }
 
 // changedSet resolves the set of changed source files and a label for it.
+// The default source can be pinned per repo via `check: {scope: staged}` in
+// the config; scope is never inferred from tree state (a check run before
+// staging would silently narrow to an empty set).
 func changedSet(g *git.Git) ([]string, string, error) {
 	switch {
 	case len(checkFiles) > 0:
@@ -293,13 +299,48 @@ func changedSet(g *git.Git) ([]string, string, error) {
 			files = append(files, filepath.ToSlash(f))
 		}
 		return files, "files", nil
-	case checkStaged:
+	case checkStaged || cfg.Check.Scope == "staged":
 		files, err := g.StagedFiles()
 		return files, "staged changes", err
 	default:
+		if s := cfg.Check.Scope; s != "" && s != "working-tree" {
+			return nil, "", fmt.Errorf("invalid check.scope %q in config (want \"staged\" or \"working-tree\")", s)
+		}
 		files, err := g.WorkingTreeFiles()
 		return files, "working tree", err
 	}
+}
+
+// scopeNote describes files the chosen scope leaves out (staged mode) or
+// silently includes (working-tree mode with staged changes). Info only.
+func scopeNote(g *git.Git, source string, changed []string) string {
+	switch source {
+	case "staged changes":
+		wt, err := g.WorkingTreeFiles()
+		if err != nil {
+			return ""
+		}
+		inScope := make(map[string]bool, len(changed))
+		for _, f := range changed {
+			inScope[f] = true
+		}
+		outside := 0
+		for _, f := range wt {
+			if !inScope[f] {
+				outside++
+			}
+		}
+		if outside > 0 {
+			return fmt.Sprintf("Note: %d changed file(s) outside the index ignored (staged scope).", outside)
+		}
+	case "working tree":
+		st, err := g.StagedFiles()
+		if err != nil || len(st) == 0 {
+			return ""
+		}
+		return fmt.Sprintf("Note: %d file(s) are staged; working-tree scope checks them together with unstaged changes (use --staged for the index alone).", len(st))
+	}
+	return ""
 }
 
 func unrelatedStaleCount(g *git.Git, filesByDoc map[string][]string, affected map[string]bool, errOut io.Writer) int {
