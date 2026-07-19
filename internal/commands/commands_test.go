@@ -661,6 +661,143 @@ func Extra() { /* changed */ }
 	}
 }
 
+func TestCheck_AnnotationOnlyChange(t *testing.T) {
+	dir := setupTestProject(t)
+
+	// Only the @doc line changes (bare -> scoped, same doc): ownership churn,
+	// not a code change. Must not gate, must land in the ownership section.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md #handler
+func Handler() {}
+`), 0644)
+
+	initTestEnv(t, dir)
+	checkStaged = false
+	checkJSON = false
+	checkNoBacklinks = true
+	checkFiles = nil
+	defer func() {
+		checkNoBacklinks = false
+		checkFiles = nil
+	}()
+
+	var stdout bytes.Buffer
+	checkCmd.SetOut(&stdout)
+	if err := checkCmd.RunE(checkCmd, nil); err != nil {
+		t.Fatalf("annotation-only change must not gate, got: %v\n%s", err, stdout.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Ownership map changed (1):") {
+		t.Errorf("expected ownership section, got:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/API.md: annotation-only change") {
+		t.Errorf("expected docs/API.md in ownership section, got:\n%s", out)
+	}
+	if strings.Contains(out, "needs update") {
+		t.Errorf("annotation-only change must not require an update, got:\n%s", out)
+	}
+
+	// JSON: additive ownership_changed array, needs_update stays 0.
+	checkJSON = true
+	defer func() { checkJSON = false }()
+	stdout.Reset()
+	if err := checkCmd.RunE(checkCmd, nil); err != nil {
+		t.Fatalf("check --json failed: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "\"ownership_changed\"") {
+		t.Errorf("JSON should carry ownership_changed, got:\n%s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "\"needs_update\": 0") {
+		t.Errorf("needs_update should be 0, got:\n%s", stdout.String())
+	}
+}
+
+func TestCheck_AnnotationOnlyChange_Staged(t *testing.T) {
+	dir := setupTestProject(t)
+
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md #handler
+func Handler() {}
+`), 0644)
+	runGit(t, dir, "add", ".")
+
+	initTestEnv(t, dir)
+	checkStaged = true
+	checkJSON = false
+	checkNoBacklinks = true
+	checkFiles = nil
+	defer func() {
+		checkStaged = false
+		checkNoBacklinks = false
+		checkFiles = nil
+	}()
+
+	var stdout bytes.Buffer
+	checkCmd.SetOut(&stdout)
+	if err := checkCmd.RunE(checkCmd, nil); err != nil {
+		t.Fatalf("staged annotation-only change must not gate, got: %v\n%s", err, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Ownership map changed (1):") {
+		t.Errorf("expected ownership section in staged mode, got:\n%s", stdout.String())
+	}
+}
+
+func TestCheck_MixedChangeStillGates(t *testing.T) {
+	dir := setupTestProject(t)
+
+	// Annotation churn AND a real code change in the same file: still required.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md #handler
+func Handler() { realChange() }
+`), 0644)
+
+	initTestEnv(t, dir)
+	checkStaged = false
+	checkJSON = false
+	checkNoBacklinks = true
+	checkFiles = nil
+	defer func() {
+		checkNoBacklinks = false
+		checkFiles = nil
+	}()
+
+	var stdout bytes.Buffer
+	checkCmd.SetOut(&stdout)
+	if err := checkCmd.RunE(checkCmd, nil); err == nil {
+		t.Fatalf("mixed change should still gate, got:\n%s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "docs/API.md: needs update") {
+		t.Errorf("expected docs/API.md required, got:\n%s", stdout.String())
+	}
+}
+
+func TestReport_AnnotationOnlyCommitNotStale(t *testing.T) {
+	dir := setupTestProject(t)
+
+	// Commit ONLY an annotation change to the linked file: the doc must not be
+	// reported stale (report stays consistent with check).
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md #handler
+func Handler() {}
+`), 0644)
+	commitAll(t, dir, "Retarget annotation only")
+
+	initTestEnv(t, dir)
+	reportStale = false
+	reportOrphaned = false
+
+	var stdout bytes.Buffer
+	reportCmd.SetOut(&stdout)
+	reportCmd.RunE(reportCmd, nil)
+	if strings.Contains(stdout.String(), "STALE DOCS") {
+		t.Errorf("annotation-only commit should not stale the doc, got:\n%s", stdout.String())
+	}
+}
+
 func TestReport_NoBacklinksFlag(t *testing.T) {
 	dir := setupTestProject(t)
 	initTestEnv(t, dir)

@@ -41,6 +41,43 @@ func TestFilterAnnotationDiff(t *testing.T) {
 	}
 }
 
+func TestAnnotationOnlyDiffFiles(t *testing.T) {
+	diff := strings.Join([]string{
+		"diff --git a/pure.go b/pure.go",
+		"--- a/pure.go",
+		"+++ b/pure.go",
+		"@@ -2 +2 @@",
+		"-// @doc docs/A.md",
+		"+// @doc docs/B.md",
+		"diff --git a/mixed.go b/mixed.go",
+		"--- a/mixed.go",
+		"+++ b/mixed.go",
+		"@@ -2 +2 @@",
+		"-// @doc docs/A.md",
+		"+// @doc docs/B.md",
+		"@@ -9 +9 @@",
+		"-old()",
+		"+new()",
+		"diff --git a/gone.go b/gone.go",
+		"--- a/gone.go",
+		"+++ /dev/null",
+		"@@ -1,2 +0,0 @@",
+		"-// @doc docs/A.md",
+		"-func Gone() {}",
+	}, "\n")
+
+	got := annotationOnlyDiffFiles(diff, "@doc")
+	if !got["pure.go"] {
+		t.Error("pure.go should be annotation-only")
+	}
+	if got["mixed.go"] {
+		t.Error("mixed.go has a real hunk and must not be annotation-only")
+	}
+	if got["gone.go"] {
+		t.Error("a deleted file's body removal is a real change")
+	}
+}
+
 func TestAnnotationOnlyHunk(t *testing.T) {
 	mixed := []string{"@@ -1 +1 @@", "-old", "+// @doc x.md"}
 	if annotationOnlyHunk(mixed, "@doc") {

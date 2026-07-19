@@ -56,6 +56,7 @@ func computeStaleDocs(g *git.Git, filesByDoc map[string][]string, errOut io.Writ
 			fmt.Fprintf(errOut, "Warning: failed to check changes for %s (%s..HEAD): %v\n", doc, lastHash, err)
 			continue
 		}
+		changed = dropAnnotationOnlyChanges(g, lastHash, "HEAD", changed)
 
 		if len(changed) > 0 {
 			commitInfo, _ := g.CommitInfo(lastHash)
@@ -70,6 +71,32 @@ func computeStaleDocs(g *git.Git, filesByDoc map[string][]string, errOut io.Writ
 	}
 
 	return stale
+}
+
+// dropAnnotationOnlyChanges removes files whose entire diff in from..to is
+// annotation churn — a moved or retargeted annotation line changes the
+// ownership map, not the behavior a doc describes, so it must not stale it (keeps
+// report/graph consistent with check, which stops gating those files too).
+// Best-effort: on any git error the list passes through unfiltered.
+func dropAnnotationOnlyChanges(g *git.Git, from, to string, changed []string) []string {
+	if len(changed) == 0 || cfg == nil || cfg.AnnotationTag == "" {
+		return changed
+	}
+	diff, err := g.Diff(from, to, changed)
+	if err != nil {
+		return changed
+	}
+	annOnly := annotationOnlyDiffFiles(diff, cfg.AnnotationTag)
+	if len(annOnly) == 0 {
+		return changed
+	}
+	kept := make([]string, 0, len(changed))
+	for _, f := range changed {
+		if !annOnly[f] {
+			kept = append(kept, f)
+		}
+	}
+	return kept
 }
 
 func baselineForDoc(g *git.Git, doc string, acks map[string]string) (reviewBaseline, error) {

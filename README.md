@@ -80,6 +80,12 @@ docdiff check [flags]
 | `--json` | Output as JSON |
 | `--no-backlinks` | Hide missing back-link hygiene suggestions |
 
+Changes that only touch `@doc` annotation lines (moving, adding, or retargeting
+links) are ownership-map churn, not code changes: they never gate the exit code.
+They're listed in a separate "Ownership map changed" info section (JSON:
+`ownership_changed`), and `report` skips them the same way when computing
+staleness.
+
 ### `docdiff report`
 
 Show documentation coverage and staleness report.

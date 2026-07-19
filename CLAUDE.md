@@ -57,6 +57,15 @@ commit** makes them share that anchor, so nothing is stale — one commit per un
 of work, no separate sync step. `computeStaleDocs` (`internal/commands/staleness.go`)
 implements this and is shared by `report`, `check`, and `graph`.
 
+Diff hunks whose every changed line contains the annotation tag are
+**annotation-only** (ownership-map churn, not code change). Classification
+happens per hunk in `parseHunks` (`internal/git/git.go`, `LineRange.AnnotationOnly`)
+and per file in `annotationOnlyDiffFiles` (`internal/commands/difffilter.go`).
+`check` moves docs whose only trigger was annotation churn into a non-gating
+"Ownership map changed" section (JSON: `ownership_changed`), and
+`computeStaleDocs` drops fully-annotation-only files before declaring a doc
+stale, so `report`/`graph` stay consistent with `check`.
+
 For the rare "code changed but the doc needs no edit" case, `ack` records a floor
 commit per doc in `.docdiff-acks.json` (repo root, committed); `effectiveBaseline`
 takes the newer of the doc's last commit and its floor. A missing/garbage-collected

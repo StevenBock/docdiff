@@ -84,10 +84,18 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	var hunks map[string][]git.LineRange
 	switch source {
 	case "working tree":
-		hunks, _ = g.ChangedHunksSince("HEAD", false, changed)
+		hunks, _ = g.ChangedHunksSince("HEAD", false, changed, cfg.AnnotationTag)
 	case "staged changes":
-		hunks, _ = g.ChangedHunksSince("HEAD", true, changed)
+		hunks, _ = g.ChangedHunksSince("HEAD", true, changed, cfg.AnnotationTag)
 	}
+
+	// File-level annotation-only classification, BEFORE doc matching: a file
+	// whose every changed hunk is annotation churn is an ownership-map change,
+	// not a code change — it must not gate any doc (bare links included).
+	// annOnlyFiles keeps an empty hunk entry so "annotation-only change" stays
+	// distinguishable from "no hunk info" (untracked/--files paths keep the
+	// conservative whole-file fallback).
+	hunks, annOnlyFiles := splitAnnotationHunks(hunks)
 
 	s := scanner.New(cfg, registry)
 	scanResult, err := s.Scan(rootDir)
@@ -102,27 +110,48 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	results := make([]checkResult, 0)
+	ownership := make([]checkResult, 0)
 	affected := make(map[string]bool)
 	warnings := make([]string, 0)
 	seenWarnings := make(map[string]bool)
 	for doc, files := range scanResult.FilesByDoc {
-		var linkedChanged []string
+		var linkedChanged, annOnlyLinked []string
 		for _, f := range files {
-			if inChange[f] && fileHitsDoc(scanResult.Annotations[f], doc, hunks) {
+			if !inChange[f] {
+				continue
+			}
+			if annOnlyFiles[f] {
+				annOnlyLinked = append(annOnlyLinked, f)
+				continue
+			}
+			if fileHitsDoc(scanResult.Annotations[f], doc, hunks) {
 				linkedChanged = append(linkedChanged, f)
 			}
 		}
+		if len(linkedChanged) > 0 && !inChange[doc] {
+			linkedChanged = changedFilesSinceBaseline(g, doc, linkedChanged, source, acks, cmd.ErrOrStderr())
+		}
 		if len(linkedChanged) == 0 {
+			// Only trigger (if any) was annotation churn: ownership map info,
+			// never a doc-update requirement.
+			if len(annOnlyLinked) > 0 {
+				sort.Strings(annOnlyLinked)
+				provenance := make([]annotationProvenance, 0)
+				for _, f := range annOnlyLinked {
+					provenance = append(provenance, provenanceForDoc(scanResult.Annotations[f], doc, f)...)
+				}
+				ownership = append(ownership, checkResult{
+					Doc:             doc,
+					Status:          "ownership changed",
+					DocInChangeset:  inChange[doc],
+					ChangedFiles:    annOnlyLinked,
+					LinkedFileCount: len(files),
+					Annotations:     provenance,
+				})
+			}
 			continue
 		}
 		sort.Strings(linkedChanged)
-
-		if !inChange[doc] {
-			linkedChanged = changedFilesSinceBaseline(g, doc, linkedChanged, source, acks, cmd.ErrOrStderr())
-			if len(linkedChanged) == 0 {
-				continue
-			}
-		}
 		affected[doc] = true
 
 		status := "needs update"
@@ -150,6 +179,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	sort.Slice(results, func(i, j int) bool { return results[i].Doc < results[j].Doc })
+	sort.Slice(ownership, func(i, j int) bool { return ownership[i].Doc < ownership[j].Doc })
 	sort.Strings(warnings)
 
 	// Count stale docs that are NOT related to the current change, so we can
@@ -177,9 +207,9 @@ func runCheck(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 	if checkJSON {
-		writeCheckJSON(out, source, results, undocRefs, unrelatedStale, needsUpdate, warnings)
+		writeCheckJSON(out, source, results, ownership, undocRefs, unrelatedStale, needsUpdate, warnings)
 	} else {
-		writeCheckHuman(out, source, results, undocRefs, unrelatedStale, needsUpdate, warnings)
+		writeCheckHuman(out, source, results, ownership, undocRefs, unrelatedStale, needsUpdate, warnings)
 	}
 
 	if needsUpdate > 0 {
@@ -241,6 +271,20 @@ func changedFilesSinceBaseline(g *git.Git, doc string, files []string, source st
 		fmt.Fprintf(errOut, "Warning: failed to check changes for %s (%s..%s): %v\n", doc, baseline.Effective, source, err)
 		return files
 	}
+	if staged && len(changed) > 0 {
+		// Drop files whose cumulative diff since the doc's baseline is pure
+		// annotation churn — there is nothing for the doc to document.
+		if diff, derr := g.DiffSince(baseline.Effective, true, changed); derr == nil {
+			annOnly := annotationOnlyDiffFiles(diff, cfg.AnnotationTag)
+			kept := changed[:0]
+			for _, f := range changed {
+				if !annOnly[f] {
+					kept = append(kept, f)
+				}
+			}
+			changed = kept
+		}
+	}
 	if source == "files" {
 		untracked, err := g.UntrackedFiles(files)
 		if err == nil {
@@ -261,11 +305,11 @@ func changedFilesSinceBaseline(g *git.Git, doc string, files []string, source st
 	return filtered
 }
 
-func writeCheckHuman(out io.Writer, source string, results []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int, warnings []string) {
+func writeCheckHuman(out io.Writer, source string, results []checkResult, ownership []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int, warnings []string) {
 	// "staged changes" + the literal word "changes" in the templates below
 	// would print "staged changes changes".
 	source = strings.TrimSuffix(source, " changes")
-	if len(results) == 0 {
+	if len(results) == 0 && len(ownership) == 0 {
 		fmt.Fprintf(out, "No docs are linked to your %s changes.\n", source)
 		if unrelatedStale > 0 {
 			fmt.Fprintf(out, "(%d unrelated stale docs hidden — run 'docdiff report' to see them.)\n", unrelatedStale)
@@ -273,28 +317,42 @@ func writeCheckHuman(out io.Writer, source string, results []checkResult, undocR
 		return
 	}
 
-	// Section 1 — required: docs whose linked code changed but weren't edited.
-	// This is the only section that drives the exit code.
-	fmt.Fprintf(out, "Required for %s changes (%d):\n", source, needsUpdate)
-	if needsUpdate == 0 {
-		fmt.Fprintln(out, "  none — every affected doc was edited alongside its code.")
-	}
-	for _, r := range results {
-		if r.Status == "needs update" {
-			fmt.Fprintf(out, "  %s: needs update%s\n", r.Doc, broadHint(r))
-			writeProvenance(out, r)
+	if len(results) > 0 {
+		// Section 1 — required: docs whose linked code changed but weren't
+		// edited. This is the only section that drives the exit code.
+		fmt.Fprintf(out, "Required for %s changes (%d):\n", source, needsUpdate)
+		if needsUpdate == 0 {
+			fmt.Fprintln(out, "  none — every affected doc was edited alongside its code.")
 		}
-	}
-
-	// Section 2 — already satisfied: edited in this changeset. Informational.
-	updated := len(results) - needsUpdate
-	if updated > 0 {
-		fmt.Fprintf(out, "\nAlready updated in this changeset (%d):\n", updated)
 		for _, r := range results {
-			if r.Status == "updated" {
-				fmt.Fprintf(out, "  %s%s\n", r.Doc, broadHint(r))
+			if r.Status == "needs update" {
+				fmt.Fprintf(out, "  %s: needs update%s\n", r.Doc, broadHint(r))
 				writeProvenance(out, r)
 			}
+		}
+
+		// Section 2 — already satisfied: edited in this changeset. Informational.
+		updated := len(results) - needsUpdate
+		if updated > 0 {
+			fmt.Fprintf(out, "\nAlready updated in this changeset (%d):\n", updated)
+			for _, r := range results {
+				if r.Status == "updated" {
+					fmt.Fprintf(out, "  %s%s\n", r.Doc, broadHint(r))
+					writeProvenance(out, r)
+				}
+			}
+		}
+	} else {
+		fmt.Fprintf(out, "No doc updates required for your %s changes.\n", source)
+	}
+
+	// Ownership-map info: docs whose only trigger was annotation churn.
+	// Informational — never gates the exit code.
+	if len(ownership) > 0 {
+		fmt.Fprintf(out, "\nOwnership map changed (%d):\n", len(ownership))
+		for _, r := range ownership {
+			fmt.Fprintf(out, "  %s: annotation-only change — no doc update required\n", r.Doc)
+			writeProvenance(out, r)
 		}
 	}
 
@@ -395,7 +453,7 @@ func annotationWarnings(ann *scanner.Annotation, doc string) []string {
 	return nil
 }
 
-func writeCheckJSON(out io.Writer, source string, results []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int, warnings []string) {
+func writeCheckJSON(out io.Writer, source string, results []checkResult, ownership []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int, warnings []string) {
 	if undocRefs == nil {
 		undocRefs = []scanner.UndocumentedRef{}
 	}
@@ -405,6 +463,7 @@ func writeCheckJSON(out io.Writer, source string, results []checkResult, undocRe
 	payload := struct {
 		Source           string                    `json:"source"`
 		Affected         []checkResult             `json:"affected"`
+		OwnershipChanged []checkResult             `json:"ownership_changed"`
 		UndocumentedRefs []scanner.UndocumentedRef `json:"undocumented_refs"`
 		NeedsUpdate      int                       `json:"needs_update"`
 		UnrelatedStale   int                       `json:"unrelated_stale"`
@@ -412,6 +471,7 @@ func writeCheckJSON(out io.Writer, source string, results []checkResult, undocRe
 	}{
 		Source:           source,
 		Affected:         results,
+		OwnershipChanged: ownership,
 		UndocumentedRefs: undocRefs,
 		NeedsUpdate:      needsUpdate,
 		UnrelatedStale:   unrelatedStale,
@@ -419,4 +479,29 @@ func writeCheckJSON(out io.Writer, source string, results []checkResult, undocRe
 	}
 	data, _ := json.MarshalIndent(payload, "", "  ")
 	fmt.Fprintln(out, string(data))
+}
+
+// splitAnnotationHunks drops AnnotationOnly ranges from the hunk map. A file
+// whose every hunk was annotation-only keeps an EMPTY entry (so scoped matching
+// sees "no touched lines", distinct from "no hunk info") and is reported in the
+// annotation-only set.
+func splitAnnotationHunks(hunks map[string][]git.LineRange) (map[string][]git.LineRange, map[string]bool) {
+	if hunks == nil {
+		return nil, nil
+	}
+	filtered := make(map[string][]git.LineRange, len(hunks))
+	annOnly := make(map[string]bool)
+	for f, ranges := range hunks {
+		real := make([]git.LineRange, 0, len(ranges))
+		for _, r := range ranges {
+			if !r.AnnotationOnly {
+				real = append(real, r)
+			}
+		}
+		filtered[f] = real
+		if len(real) == 0 && len(ranges) > 0 {
+			annOnly[f] = true
+		}
+	}
+	return filtered, annOnly
 }

@@ -351,18 +351,23 @@ type CommitDetail struct {
 }
 
 // LineRange is an inclusive 1-based range of new-side lines a diff hunk touched.
+// AnnotationOnly marks hunks whose every changed (+/-) line contains the
+// annotation tag — ownership-map churn, not a code change (same rule as
+// annotationOnlyHunk in internal/commands/difffilter.go).
 type LineRange struct {
-	Start int
-	End   int
+	Start          int
+	End            int
+	AnnotationOnly bool
 }
 
 var hunkHeader = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@`)
 
 // ChangedHunksSince returns, per file, the new-side line ranges changed against
 // fromHash (working tree, or the index when staged). Uses --unified=0 so ranges
-// are tight. Untracked files never appear (they aren't in a diff). Used for
-// hunk-level scope matching in `check`.
-func (g *Git) ChangedHunksSince(fromHash string, staged bool, files []string) (map[string][]LineRange, error) {
+// are tight. Untracked files never appear (they aren't in a diff). Each range
+// is classified AnnotationOnly when every changed line contains tag (pass ""
+// to skip classification). Used for hunk-level scope matching in `check`.
+func (g *Git) ChangedHunksSince(fromHash string, staged bool, files []string, tag string) (map[string][]LineRange, error) {
 	args := []string{"diff", "--unified=0", "--no-color"}
 	if staged {
 		args = append(args, "--cached")
@@ -376,19 +381,27 @@ func (g *Git) ChangedHunksSince(fromHash string, staged bool, files []string) (m
 	if err != nil {
 		return nil, err
 	}
-	return parseHunks(out), nil
+	return parseHunks(out, tag), nil
 }
 
-func parseHunks(diff string) map[string][]LineRange {
+func parseHunks(diff string, tag string) map[string][]LineRange {
 	result := make(map[string][]LineRange)
 	if diff == "" {
 		return result
 	}
 	var file string
+	var cur *LineRange // hunk being classified
+	curHasReal := false
 	for _, line := range strings.Split(diff, "\n") {
 		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			// New file block: its "--- a/..." header must not be counted as a
+			// changed line of the previous hunk.
+			cur = nil
+			file = ""
 		case strings.HasPrefix(line, "+++ "):
 			// "+++ b/path" (or "/dev/null" for a deletion).
+			cur = nil
 			p := strings.TrimPrefix(line, "+++ ")
 			if p == "/dev/null" {
 				file = ""
@@ -396,6 +409,7 @@ func parseHunks(diff string) map[string][]LineRange {
 			}
 			file = strings.TrimPrefix(p, "b/")
 		case strings.HasPrefix(line, "@@") && file != "":
+			cur = nil
 			m := hunkHeader.FindStringSubmatch(line)
 			if m == nil {
 				continue
@@ -410,6 +424,17 @@ func parseHunks(diff string) map[string][]LineRange {
 				end = start // pure deletion: the line the removal sits at
 			}
 			result[file] = append(result[file], LineRange{Start: start, End: end})
+			if tag != "" {
+				cur = &result[file][len(result[file])-1]
+				curHasReal = false
+			}
+		case cur != nil && (strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-")):
+			if strings.Contains(line, tag) && !curHasReal {
+				cur.AnnotationOnly = true
+			} else {
+				curHasReal = true
+				cur.AnnotationOnly = false
+			}
 		}
 	}
 	return result

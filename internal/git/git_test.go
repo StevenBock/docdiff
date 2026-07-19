@@ -354,12 +354,53 @@ func TestParseHunks(t *testing.T) {
 		"--- a/gone.go\n" +
 		"+++ /dev/null\n" +
 		"@@ -1,5 +0,0 @@\n"
-	got := parseHunks(diff)
+	got := parseHunks(diff, "")
 	x := got["x.go"]
-	if len(x) != 2 || x[0] != (LineRange{4, 5}) || x[1] != (LineRange{12, 12}) {
+	if len(x) != 2 || x[0] != (LineRange{Start: 4, End: 5}) || x[1] != (LineRange{Start: 12, End: 12}) {
 		t.Errorf("x.go ranges = %+v, want [{4 5} {12 12}]", x)
 	}
 	if _, ok := got["gone.go"]; ok {
 		t.Errorf("deletion to /dev/null should record no new-side range, got %+v", got["gone.go"])
+	}
+}
+
+func TestParseHunks_AnnotationOnly(t *testing.T) {
+	diff := "diff --git a/x.go b/x.go\n" +
+		"--- a/x.go\n" +
+		"+++ b/x.go\n" +
+		"@@ -2 +2 @@\n" +
+		"-// @doc docs/A.md\n" +
+		"+// @doc docs/A.md #scoped\n" +
+		"@@ -10 +10 @@\n" +
+		"-old code\n" +
+		"+new code\n" +
+		"diff --git a/y.go b/y.go\n" +
+		"--- a/y.go\n" +
+		"+++ b/y.go\n" +
+		"@@ -5,0 +6 @@\n" +
+		"+// @doc docs/B.md\n"
+	got := parseHunks(diff, "@doc")
+	x := got["x.go"]
+	if len(x) != 2 || !x[0].AnnotationOnly || x[1].AnnotationOnly {
+		t.Errorf("x.go = %+v, want first hunk annotation-only, second real", x)
+	}
+	// The last hunk of x.go must not be misclassified by y.go's file header.
+	y := got["y.go"]
+	if len(y) != 1 || !y[0].AnnotationOnly {
+		t.Errorf("y.go = %+v, want one annotation-only hunk", y)
+	}
+	// A hunk mixing annotation and code lines is real.
+	mixed := parseHunks("diff --git a/z.go b/z.go\n"+
+		"--- a/z.go\n"+
+		"+++ b/z.go\n"+
+		"@@ -1,0 +2,2 @@\n"+
+		"+// @doc docs/C.md\n"+
+		"+func New() {}\n", "@doc")
+	if z := mixed["z.go"]; len(z) != 1 || z[0].AnnotationOnly {
+		t.Errorf("z.go = %+v, want one real (mixed) hunk", z)
+	}
+	// Without a tag, no classification happens.
+	if none := parseHunks(diff, ""); none["y.go"][0].AnnotationOnly {
+		t.Error("empty tag must skip classification")
 	}
 }
