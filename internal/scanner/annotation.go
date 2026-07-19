@@ -21,6 +21,10 @@ type Result struct {
 	AllFiles         []string
 	Errors           []error
 	UndocumentedRefs []UndocumentedRef
+	// DocRefs maps each doc that was READ as content to the set of source
+	// files it mentions. A doc present with an empty set genuinely mentions
+	// nothing; a doc absent from the map was never read (missing/non-markdown).
+	DocRefs map[string]map[string]bool
 }
 
 func NewResult() *Result {
@@ -30,6 +34,7 @@ func NewResult() *Result {
 		AllFiles:         make([]string, 0),
 		Errors:           make([]error, 0),
 		UndocumentedRefs: make([]UndocumentedRef, 0),
+		DocRefs:          make(map[string]map[string]bool),
 	}
 }
 

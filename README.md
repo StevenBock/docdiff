@@ -165,6 +165,20 @@ docdiff graph [flags]
 
 Stale documentation relationships are highlighted in red.
 
+### `docdiff lint`
+
+Check the health of the annotation map itself, independent of staleness.
+Problems exit non-zero: a file whose **only** annotation is scoped (its region
+silently runs to end of file — close it with `@doc -`), a file linking the same
+doc both whole-file and scoped (whole-file wins, the scopes are dead), and
+fan-out (one file whole-file-linking ≥ N docs; `lint.fan_out_threshold`,
+default 3). Vestigial-link findings — a doc that never mentions a file linking
+to it — are advisory only and never affect the exit code.
+
+```bash
+docdiff lint [--json]
+```
+
 ### `docdiff onboard`
 
 Print comprehensive docdiff usage instructions for AI agents.

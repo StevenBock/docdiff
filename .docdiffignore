@@ -1,0 +1,3 @@
+# Files whose CONTENT embeds example annotation lines the comment regex
+# would parse as real links (onboard instructions show literal examples).
+internal/commands/onboard.go

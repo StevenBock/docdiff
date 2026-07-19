@@ -302,13 +302,12 @@ func (s *Scanner) isIncluded(relPath string) bool {
 	return false
 }
 
+// scanDocsForRefs reads docs as content: every markdown file under the docs
+// directory PLUS every doc linked from source anywhere else (CLAUDE.md,
+// README.md, ...), so linked docs outside docs_directory get reference sets
+// too. It records each doc's referenced source files on Result.DocRefs and
+// flags references without a back-link as undocumented.
 func (s *Scanner) scanDocsForRefs(rootDir string, result *Result) error {
-	docsDir := s.config.DocsPath(rootDir)
-
-	if _, err := os.Stat(docsDir); os.IsNotExist(err) {
-		return nil
-	}
-
 	extensions := s.registry.AllExtensions()
 	parser := docparse.New(result.AllFiles, extensions)
 
@@ -322,41 +321,63 @@ func (s *Scanner) scanDocsForRefs(rootDir string, result *Result) error {
 		}
 	}
 
-	return filepath.WalkDir(docsDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".md" && ext != ".markdown" {
-			return nil
-		}
-
+	processDoc := func(path, relDocPath string) {
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return nil
+			return
 		}
-
-		relDocPath, err := filepath.Rel(rootDir, path)
-		if err != nil {
-			return nil
-		}
-		relDocPath = filepath.ToSlash(relDocPath)
 
 		refs := parser.Parse(content)
 		linkedFiles := filesWithDocToThis[relDocPath]
 
+		refSet := make(map[string]bool, len(refs))
 		for _, ref := range refs {
+			refSet[ref.Path] = true
 			if linkedFiles != nil && linkedFiles[ref.Path] {
 				continue
 			}
 			result.AddUndocumentedRef(relDocPath, ref.Path, ref.Line)
 		}
+		result.DocRefs[relDocPath] = refSet
+	}
 
-		return nil
-	})
+	var walkErr error
+	docsDir := s.config.DocsPath(rootDir)
+	if _, err := os.Stat(docsDir); err == nil {
+		walkErr = filepath.WalkDir(docsDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if !isMarkdown(path) {
+				return nil
+			}
+			relDocPath, err := filepath.Rel(rootDir, path)
+			if err != nil {
+				return nil
+			}
+			processDoc(path, filepath.ToSlash(relDocPath))
+			return nil
+		})
+	}
+
+	for doc := range result.FilesByDoc {
+		if _, done := result.DocRefs[doc]; done || !isMarkdown(doc) {
+			continue
+		}
+		path := filepath.Join(rootDir, filepath.FromSlash(doc))
+		if _, err := os.Stat(path); err != nil {
+			continue // broken link: nothing to read
+		}
+		processDoc(path, doc)
+	}
+
+	return walkErr
+}
+
+func isMarkdown(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".md" || ext == ".markdown"
 }

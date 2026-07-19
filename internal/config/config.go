@@ -18,6 +18,20 @@ type Config struct {
 	RespectGitignore *bool                     `yaml:"respect_gitignore" json:"respect_gitignore"`
 	Languages        map[string]LanguageConfig `yaml:"languages" json:"languages"`
 	CI               CIConfig                  `yaml:"ci" json:"ci"`
+	Lint             LintConfig                `yaml:"lint" json:"lint"`
+}
+
+type LintConfig struct {
+	// FanOutThreshold is the number of distinct whole-file doc links on one
+	// source file at which `lint` flags a fan-out smell. Defaults to 3.
+	FanOutThreshold int `yaml:"fan_out_threshold" json:"fan_out_threshold"`
+}
+
+func (c *Config) LintFanOutThreshold() int {
+	if c.Lint.FanOutThreshold > 0 {
+		return c.Lint.FanOutThreshold
+	}
+	return 3
 }
 
 // GitignoreRespected reports whether gitignored files should be skipped during

@@ -89,6 +89,7 @@ history when staleness is computed.
 - `report` - Show repo-wide stale/orphaned docs (supports `--json`, `--sarif`, `--ci`, `--no-backlinks`)
 - `changes <doc>` - Show code changes since the doc's last commit (`--ai`, `--working-tree`, `--staged`, `--hide-annotations` to drop annotation-only diff hunks)
 - `ack <doc>...` - Record a review floor for a doc whose code changed but text needed no edit (`--to <ref>`; writes `.docdiff-acks.json`). `--amend` folds the floor into the current HEAD commit so code and its ack live in one commit (per the commit-together rule). `ack --required` replays check's Required computation over HEAD's own diff (`ShowCommitHunks`, scope matching and annotation-only filtering included), intersects it with currently-stale docs, and acks that set in one command; composes with `--amend`.
+- `lint` - Annotation-map hygiene, independent of staleness (`--json`). Problems (non-zero exit): scope-to-eof (a file's only annotation is scoped, so its region runs to EOF — fix with `@doc -`), mixed-ownership (same doc linked whole-file + scoped in one file), fan-out (≥ `lint.fan_out_threshold` distinct whole-file links on one file, default 3). Advisory (never gates): vestigial-link (a doc read as content never mentions a file linking to it). Doc reference sets come from the scanner (`Result.DocRefs`), which reads every markdown doc under `docs_directory` PLUS every linked doc elsewhere (CLAUDE.md, README.md, ...).
 - `suggest` - Group orphaned files by likely owning doc (directory-vote heuristic) and emit `@doc` annotation lines in batches (`--json`)
 - `graph` - Output doc-to-file relationship graph (DOT or `--mermaid`); stale links highlighted
 
@@ -99,5 +100,6 @@ Reads `.docdiff.yaml` or `.docdiff.json` from project root. Key settings:
 - `include/exclude` - Glob patterns for file scanning. A pattern without a `/` matches the basename at any depth (gitignore-like).
 - `respect_gitignore` - Skip files git ignores via `git check-ignore` (default `true`)
 - `ci.fail_on_stale` - Exit code behavior
+- `lint.fan_out_threshold` - Whole-file links on one file before `lint` flags fan-out (default `3`)
 
 A `.docdiffignore` file (one glob per line, `#` comments) adds extra excludes on top of `exclude:` — use it for committed files git won't ignore (vendored license text, local notes).
