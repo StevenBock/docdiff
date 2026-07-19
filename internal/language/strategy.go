@@ -9,13 +9,13 @@ import (
 )
 
 // Terminator is the annotation path that closes the current scoped region
-// without assigning the code below it to any doc (`@doc -`). It stays in a
-// file's Details so region computation sees it as a boundary, but it is never
-// a doc link.
+// without assigning the code below it to any doc — the tag followed by a lone
+// dash. It stays in a file's Details so region computation sees it as a
+// boundary, but it is never a doc link.
 const Terminator = "-"
 
-// DocAnnotation is a single @doc reference with its position and optional scope.
-// Scope (an optional "#name" suffix, e.g. `@doc docs/X.md #settings.general`)
+// DocAnnotation is a single doc-link annotation with its position and optional scope.
+// Scope (an optional "#name" suffix after the doc path, e.g. "#settings.general")
 // narrows ownership: a scoped annotation owns the code region from its line to
 // the next annotation, so a change elsewhere in a central file doesn't flag it.
 // An empty Scope means whole-file ownership (the original behavior).
@@ -51,7 +51,7 @@ func (b *BaseStrategy) CommentPatterns() []*regexp.Regexp {
 	return b.patterns
 }
 
-// ExtractDetailed returns every @doc annotation with its scope and line, using
+// ExtractDetailed returns every doc annotation with its scope and line, using
 // the strategy's own comment patterns. All strategies embed BaseStrategy, so
 // they inherit this for free.
 func (b *BaseStrategy) ExtractDetailed(content []byte, tag string) []DocAnnotation {
@@ -73,10 +73,10 @@ func (b *BaseStrategy) ExtractFromPatterns(content []byte, tag string, patterns 
 	return annotations
 }
 
-// extractDetailed matches `@doc <path>` with an optional `#<scope>` suffix
-// inside each comment, recording the line the annotation sits on. The scope is
-// #-prefixed so trailing prose after a bare `@doc path` is never mistaken for a
-// scope. Exact (path, scope, line) duplicates are collapsed.
+// extractDetailed matches the tag followed by `<path>` with an optional
+// `#<scope>` suffix inside each comment, recording the line the annotation sits
+// on. The scope is #-prefixed so trailing prose after a bare path annotation is
+// never mistaken for a scope. Exact (path, scope, line) duplicates are collapsed.
 func extractDetailed(content []byte, tag string, patterns []*regexp.Regexp) []DocAnnotation {
 	tagPattern := regexp.MustCompile(regexp.QuoteMeta(tag) + `\s+(\S+)(?:\s+#(\S+))?`)
 
