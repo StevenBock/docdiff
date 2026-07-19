@@ -8,6 +8,7 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -261,6 +262,9 @@ func changedFilesSinceBaseline(g *git.Git, doc string, files []string, source st
 }
 
 func writeCheckHuman(out io.Writer, source string, results []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int, warnings []string) {
+	// "staged changes" + the literal word "changes" in the templates below
+	// would print "staged changes changes".
+	source = strings.TrimSuffix(source, " changes")
 	if len(results) == 0 {
 		fmt.Fprintf(out, "No docs are linked to your %s changes.\n", source)
 		if unrelatedStale > 0 {
