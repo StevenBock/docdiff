@@ -101,5 +101,6 @@ Reads `.docdiff.yaml` or `.docdiff.json` from project root. Key settings:
 - `respect_gitignore` - Skip files git ignores via `git check-ignore` (default `true`)
 - `ci.fail_on_stale` - Exit code behavior
 - `lint.fan_out_threshold` - Whole-file links on one file before `lint` flags fan-out (default `3`)
+- `docs.<path>.gate: structural` - Inverts flagging polarity for that doc: annotation-map changes and linked-file add/delete/rename gate (`check`) and stale (`report`); body edits do not. Pure annotation moves within a file (equal per-doc multisets of scopes over annotation-only hunks) never gate; an annotation changed inside a code hunk gates conservatively. Shared logic in `internal/commands/structural.go` (`annotationDeltasByFile`, `structuralTriggers`); applied in `check`'s structural pass and `computeStaleDocs` (whole-repo diff + `--name-status` per baseline, cached). Diff-backed modes only — `--files` mode keeps normal behavior for these docs.
 
 A `.docdiffignore` file (one glob per line, `#` comments) adds extra excludes on top of `exclude:` — use it for committed files git won't ignore (vendored license text, local notes).

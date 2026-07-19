@@ -286,6 +286,65 @@ func (g *Git) ChangedFilesSince(fromHash string, staged bool, files []string) ([
 	return splitNonEmpty(output), nil
 }
 
+// NameStatus is one `git diff --name-status` entry. Path is the new-side path
+// (or the deleted path for 'D'); OldPath is set for renames/copies.
+type NameStatus struct {
+	Status  byte // 'A', 'M', 'D', 'R', 'C', ...
+	Path    string
+	OldPath string
+}
+
+// NameStatusSince returns name-status entries between fromHash and the working
+// tree, or the index when staged. Renames are detected (git's default -M).
+func (g *Git) NameStatusSince(fromHash string, staged bool, files []string) ([]NameStatus, error) {
+	args := []string{"diff", "--name-status"}
+	if staged {
+		args = append(args, "--cached")
+	}
+	args = append(args, fromHash)
+	if len(files) > 0 {
+		args = append(args, "--")
+		args = append(args, files...)
+	}
+	out, err := g.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseNameStatus(out), nil
+}
+
+// NameStatusBetween returns name-status entries for fromHash..toHash.
+func (g *Git) NameStatusBetween(fromHash, toHash string, files []string) ([]NameStatus, error) {
+	args := []string{"diff", "--name-status", fromHash + ".." + toHash}
+	if len(files) > 0 {
+		args = append(args, "--")
+		args = append(args, files...)
+	}
+	out, err := g.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseNameStatus(out), nil
+}
+
+func parseNameStatus(out string) []NameStatus {
+	var res []NameStatus
+	for _, ln := range splitNonEmpty(out) {
+		parts := strings.Split(ln, "\t")
+		if len(parts) < 2 || parts[0] == "" {
+			continue
+		}
+		ns := NameStatus{Status: parts[0][0]}
+		if (ns.Status == 'R' || ns.Status == 'C') && len(parts) >= 3 {
+			ns.OldPath, ns.Path = parts[1], parts[2]
+		} else {
+			ns.Path = parts[1]
+		}
+		res = append(res, ns)
+	}
+	return res
+}
+
 // DiffSince diffs fromHash against the working tree, or the index when staged.
 func (g *Git) DiffSince(fromHash string, staged bool, files []string) (string, error) {
 	args := []string{"diff"}

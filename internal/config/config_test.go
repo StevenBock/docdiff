@@ -269,3 +269,25 @@ languages:
 		}
 	})
 }
+
+func TestLoad_DocPolicies(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".docdiff.yaml"), []byte(`docs:
+  docs/MODULES.md:
+    gate: structural
+  docs/API.md:
+    gate: ""
+`), 0644)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	structural := cfg.StructuralDocs()
+	if !structural["docs/MODULES.md"] {
+		t.Error("docs/MODULES.md should be structural")
+	}
+	if structural["docs/API.md"] {
+		t.Error("docs/API.md has no structural gate")
+	}
+}

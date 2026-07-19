@@ -35,8 +35,26 @@ func computeStaleDocs(g *git.Git, filesByDoc map[string][]string, errOut io.Writ
 		acks = map[string]string{}
 	}
 
-	for doc, files := range filesByDoc {
-		if len(files) == 0 {
+	structural := map[string]bool{}
+	if cfg != nil {
+		structural = cfg.StructuralDocs()
+	}
+
+	// Structural docs are evaluated even when no file currently links them —
+	// removing a doc's last annotation IS a structural change.
+	docSet := make(map[string]bool, len(filesByDoc)+len(structural))
+	for doc := range filesByDoc {
+		docSet[doc] = true
+	}
+	for doc := range structural {
+		docSet[doc] = true
+	}
+
+	structuralRanges := make(map[string]*structuralRange)
+
+	for doc := range docSet {
+		files := filesByDoc[doc]
+		if len(files) == 0 && !structural[doc] {
 			continue
 		}
 
@@ -51,12 +69,17 @@ func computeStaleDocs(g *git.Git, filesByDoc map[string][]string, errOut io.Writ
 			continue // doc not committed and not acked; nothing to compare against
 		}
 
-		changed, err := g.ChangedFilesBetween(lastHash, "HEAD", files)
-		if err != nil {
-			fmt.Fprintf(errOut, "Warning: failed to check changes for %s (%s..HEAD): %v\n", doc, lastHash, err)
-			continue
+		var changed []string
+		if structural[doc] {
+			changed = structuralChangedFiles(g, doc, lastHash, files, structuralRanges, errOut)
+		} else {
+			changed, err = g.ChangedFilesBetween(lastHash, "HEAD", files)
+			if err != nil {
+				fmt.Fprintf(errOut, "Warning: failed to check changes for %s (%s..HEAD): %v\n", doc, lastHash, err)
+				continue
+			}
+			changed = dropAnnotationOnlyChanges(g, lastHash, "HEAD", changed)
 		}
-		changed = dropAnnotationOnlyChanges(g, lastHash, "HEAD", changed)
 
 		if len(changed) > 0 {
 			commitInfo, _ := g.CommitInfo(lastHash)
@@ -71,6 +94,41 @@ func computeStaleDocs(g *git.Git, filesByDoc map[string][]string, errOut io.Writ
 	}
 
 	return stale
+}
+
+// structuralRange caches the whole-repo diff analysis for one baseline hash so
+// several structural docs sharing an anchor don't re-run git.
+type structuralRange struct {
+	deltas     map[string]*fileAnnDelta
+	nameStatus []git.NameStatus
+}
+
+// structuralChangedFiles applies the inverted (gate: structural) polarity over
+// committed history: annotation-map changes and linked-file add/rename since
+// the baseline make the doc stale; body edits never do.
+func structuralChangedFiles(g *git.Git, doc, lastHash string, files []string, cache map[string]*structuralRange, errOut io.Writer) []string {
+	r := cache[lastHash]
+	if r == nil {
+		diff, err := g.Diff(lastHash, "HEAD", nil)
+		if err != nil {
+			fmt.Fprintf(errOut, "Warning: failed to diff %s..HEAD for structural doc %s: %v\n", lastHash, doc, err)
+			return nil
+		}
+		ns, err := g.NameStatusBetween(lastHash, "HEAD", nil)
+		if err != nil {
+			fmt.Fprintf(errOut, "Warning: failed to get name-status %s..HEAD for %s: %v\n", lastHash, doc, err)
+			return nil
+		}
+		r = &structuralRange{deltas: annotationDeltasByFile(diff, cfg.AnnotationTag), nameStatus: ns}
+		cache[lastHash] = r
+	}
+
+	linked := make(map[string]bool, len(files))
+	for _, f := range files {
+		linked[f] = true
+	}
+	trigFiles, _ := structuralTriggers(doc, r.deltas, r.nameStatus, nil, func(f string) bool { return linked[f] })
+	return uniqueSorted(trigFiles)
 }
 
 // dropAnnotationOnlyChanges removes files whose entire diff in from..to is

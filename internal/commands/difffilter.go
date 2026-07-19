@@ -126,9 +126,9 @@ func diffBlockFile(block []string) string {
 	return old
 }
 
-// filterBlock returns the block with annotation-only hunks removed, or nil if
-// every hunk was annotation-only (drop the whole file block).
-func filterBlock(block []string, tag string) []string {
+// splitBlockHunks splits one file block into its header lines and one slice of
+// lines per "@@" hunk. hunks is nil for hunk-less blocks (rename/mode change).
+func splitBlockHunks(block []string) (header []string, hunks [][]string) {
 	firstHunk := -1
 	for i, ln := range block {
 		if strings.HasPrefix(ln, "@@") {
@@ -137,11 +137,10 @@ func filterBlock(block []string, tag string) []string {
 		}
 	}
 	if firstHunk == -1 {
-		return block // no hunks (rename/mode change only) — keep
+		return block, nil
 	}
 
-	header := block[:firstHunk]
-	var hunks [][]string
+	header = block[:firstHunk]
 	var cur []string
 	for _, ln := range block[firstHunk:] {
 		if strings.HasPrefix(ln, "@@") {
@@ -155,6 +154,16 @@ func filterBlock(block []string, tag string) []string {
 	}
 	if len(cur) > 0 {
 		hunks = append(hunks, cur)
+	}
+	return header, hunks
+}
+
+// filterBlock returns the block with annotation-only hunks removed, or nil if
+// every hunk was annotation-only (drop the whole file block).
+func filterBlock(block []string, tag string) []string {
+	header, hunks := splitBlockHunks(block)
+	if hunks == nil {
+		return block // no hunks (rename/mode change only) — keep
 	}
 
 	out := append([]string{}, header...)

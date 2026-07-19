@@ -19,6 +19,26 @@ type Config struct {
 	Languages        map[string]LanguageConfig `yaml:"languages" json:"languages"`
 	CI               CIConfig                  `yaml:"ci" json:"ci"`
 	Lint             LintConfig                `yaml:"lint" json:"lint"`
+	Docs             map[string]DocPolicy      `yaml:"docs" json:"docs"`
+}
+
+// DocPolicy is per-doc behavior declared in the config's `docs:` map.
+type DocPolicy struct {
+	// Gate inverts what flags the doc when set to "structural": annotation-map
+	// changes and linked-file add/delete/rename gate; body edits do not. Docs
+	// that inventory files (module maps, ownership indexes) want this.
+	Gate string `yaml:"gate" json:"gate"`
+}
+
+// StructuralDocs returns the docs declared with `gate: structural`.
+func (c *Config) StructuralDocs() map[string]bool {
+	out := make(map[string]bool)
+	for doc, p := range c.Docs {
+		if p.Gate == "structural" {
+			out[doc] = true
+		}
+	}
+	return out
 }
 
 type LintConfig struct {

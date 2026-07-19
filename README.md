@@ -228,6 +228,17 @@ languages:
 ci:
   fail_on_stale: true
   fail_on_orphaned: false
+
+lint:
+  fan_out_threshold: 3
+
+# Per-doc policies. `gate: structural` inverts what flags the doc: annotation
+# map changes and linked-file add/delete/rename gate; body edits do NOT. For
+# docs that inventory files (module maps, ownership indexes) rather than
+# describe behavior. Pure annotation moves within a file never gate.
+docs:
+  docs/MODULES.md:
+    gate: structural
 ```
 
 Also supports `.docdiff.json`.

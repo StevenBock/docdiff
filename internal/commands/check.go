@@ -52,11 +52,13 @@ func init() {
 
 type checkResult struct {
 	Doc             string                 `json:"doc"`
-	Status          string                 `json:"status"` // "updated" | "needs update"
+	Status          string                 `json:"status"` // "updated" | "needs update" | "ownership changed"
 	DocInChangeset  bool                   `json:"doc_in_changeset"`
 	ChangedFiles    []string               `json:"changed_files"`
 	LinkedFileCount int                    `json:"linked_file_count"`
 	Annotations     []annotationProvenance `json:"annotations,omitempty"`
+	// Reasons carries structural-gate provenance (gate: structural docs).
+	Reasons []string `json:"reasons,omitempty"`
 }
 
 type annotationProvenance struct {
@@ -119,12 +121,20 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		acks = map[string]string{}
 	}
 
+	// `gate: structural` docs invert Item-1 polarity and are evaluated in a
+	// separate pass (diff-backed modes only; --files keeps normal behavior).
+	structural := cfg.StructuralDocs()
+	diffBacked := source == "working tree" || source == "staged changes"
+
 	results := make([]checkResult, 0)
 	ownership := make([]checkResult, 0)
 	affected := make(map[string]bool)
 	warnings := make([]string, 0)
 	seenWarnings := make(map[string]bool)
 	for doc, files := range scanResult.FilesByDoc {
+		if diffBacked && structural[doc] {
+			continue // body edits never flag structural docs
+		}
 		var linkedChanged, annOnlyLinked []string
 		hitsByFile := make(map[string][]scopeHit)
 		for _, f := range files {
@@ -190,6 +200,43 @@ func runCheck(cmd *cobra.Command, args []string) error {
 			LinkedFileCount: len(files),
 			Annotations:     provenance,
 		})
+	}
+
+	if diffBacked && len(structural) > 0 {
+		staged := source == "staged changes"
+		// No pathspec: a filter built from --name-only would omit the old
+		// side of renames and break git's rename pairing.
+		diffText, _ := g.DiffSince("HEAD", staged, nil)
+		deltas := annotationDeltasByFile(diffText, cfg.AnnotationTag)
+		nameStatus, _ := g.NameStatusSince("HEAD", staged, nil)
+		var untracked []string
+		if !staged {
+			untracked, _ = g.UntrackedFiles(nil)
+		}
+
+		for doc := range structural {
+			linked := make(map[string]bool)
+			for _, f := range scanResult.FilesByDoc[doc] {
+				linked[f] = true
+			}
+			trigFiles, reasons := structuralTriggers(doc, deltas, nameStatus, untracked, func(f string) bool { return linked[f] })
+			if len(trigFiles) == 0 {
+				continue
+			}
+			affected[doc] = true
+			status := "needs update"
+			if inChange[doc] {
+				status = "updated"
+			}
+			results = append(results, checkResult{
+				Doc:             doc,
+				Status:          status,
+				DocInChangeset:  inChange[doc],
+				ChangedFiles:    uniqueSorted(trigFiles),
+				LinkedFileCount: len(scanResult.FilesByDoc[doc]),
+				Reasons:         reasons,
+			})
+		}
 	}
 
 	sort.Slice(results, func(i, j int) bool { return results[i].Doc < results[j].Doc })
@@ -406,6 +453,9 @@ func broadHint(r checkResult) string {
 }
 
 func writeProvenance(out io.Writer, r checkResult) {
+	for _, reason := range r.Reasons {
+		fmt.Fprintf(out, "    %s\n", reason)
+	}
 	for _, p := range r.Annotations {
 		switch {
 		case p.Kind == "scoped":
