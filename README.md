@@ -138,9 +138,15 @@ changes again. The floor is an existing commit, so there's no chicken-and-egg �
 commit the code, run `ack`, and commit `.docdiff-acks.json`. Use `--amend` to
 fold that ack into the current HEAD commit.
 
+Use `--reason` to record *why* the doc needed no edit. An ack asserts "I read
+this and it is still true"; without a reason a bulk ack is indistinguishable
+from a rubber stamp later. `.docdiff-acks.json` accepts both the original
+`{doc: sha}` form and `{doc: {commit, reason}}`, and only writes the object form
+when a reason is given — existing files are never rewritten.
+
 ```bash
-docdiff ack <doc>... [--to <ref>] [--amend]
-docdiff ack --required [--amend]
+docdiff ack <doc>... [--to <ref>] [--amend] [--reason "..."]
+docdiff ack --required [--amend] [--reason "..."]
 ```
 
 | Flag | Description |
@@ -148,6 +154,7 @@ docdiff ack --required [--amend]
 | `--to <ref>` | Floor commit to ack at (HEAD, branch, or sha); default HEAD |
 | `--amend` | Fold `.docdiff-acks.json` into the current HEAD commit |
 | `--required` | Ack exactly the docs `check` would have flagged as Required for HEAD's own diff (and that are still stale) — "I reviewed everything my last commit affected" in one command |
+| `--reason` | Why the doc needed no edit; recorded next to the floor commit and shown by `docdiff explain` |
 
 ### `docdiff suggest`
 
@@ -174,8 +181,10 @@ Stale documentation relationships are highlighted in red.
 ### `docdiff lint`
 
 Check the health of the annotation map itself, independent of staleness.
-Problems exit non-zero: a file whose **only** annotation is scoped (its region
-silently runs to end of file — close it with `@doc -`), a file linking the same
+Problems exit non-zero: a scoped annotation that follows another one and so
+runs to end of file (close it with `@doc -` if it shouldn't own everything
+below — a file whose **only** annotation is scoped is not flagged, since it owns
+the whole file either way), a file linking the same
 doc both whole-file and scoped (whole-file wins, the scopes are dead), and
 fan-out (one file whole-file-linking ≥ N docs; `lint.fan_out_threshold`,
 default 3), and scope drift — a doc using section markers (HTML comments of

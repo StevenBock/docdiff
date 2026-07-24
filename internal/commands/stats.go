@@ -118,9 +118,13 @@ func ackCountsFromHistory(g *git.Git) map[string]int {
 		if err != nil {
 			continue // file absent at this commit (e.g. deleted later)
 		}
-		cur := map[string]string{}
-		if json.Unmarshal([]byte(content), &cur) != nil {
+		entries, err := parseAckEntries([]byte(content))
+		if err != nil {
 			continue
+		}
+		cur := make(map[string]string, len(entries))
+		for doc, e := range entries {
+			cur[doc] = e.Commit
 		}
 		for doc, floor := range cur {
 			if prev[doc] != floor {

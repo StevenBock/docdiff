@@ -26,9 +26,10 @@ var lintCmd = &cobra.Command{
 	Long: `Check the health of the annotation map itself, independent of staleness.
 
 Problems (non-zero exit):
-  scope-to-eof     a file's only annotation is scoped, so its region silently
-                   runs to end of file — close it with the terminator form
-                   (tag + '-') or use a whole-file link
+  scope-to-eof     a scoped annotation that follows another one runs to end of
+                   file — close it with the terminator form (tag + '-') if it
+                   shouldn't own everything below. A file whose ONLY annotation
+                   is scoped is not flagged: it owns the whole file either way
   mixed-ownership  a file links the same doc both whole-file and scoped;
                    whole-file wins, the scopes are dead
   fan-out          one file whole-file-links many docs, so every change flags
@@ -126,18 +127,21 @@ func lintFindings(res *scanner.Result, tag string, fanOutThreshold int) []lintFi
 	var out []lintFinding
 
 	for file, ann := range res.Annotations {
-		// scope-to-eof: the file's only annotation is scoped, so its "narrow"
-		// region actually owns everything to end of file.
-		if len(ann.Details) == 1 && ann.Details[0].Scope != "" {
-			d := ann.Details[0]
-			out = append(out, lintFinding{
-				Rule: "scope-to-eof",
-				File: file,
-				Line: d.Line,
-				Doc:  d.Path,
-				Message: fmt.Sprintf("%s:%d: scoped annotation #%s is the file's only annotation, so its region runs to end of file — close it with '%s -' or use a whole-file link",
-					file, d.Line, d.Scope, tag),
-			})
+		// scope-to-eof: a scoped region that runs to end of file AFTER an earlier
+		// annotation. Only then is "where does this region stop" a real question
+		// — a file whose single annotation is scoped owns everything below it,
+		// exactly as a whole-file link would, and needs no terminator.
+		if len(ann.Details) > 1 {
+			if d := ann.Details[len(ann.Details)-1]; d.Scope != "" && d.Path != language.Terminator {
+				out = append(out, lintFinding{
+					Rule: "scope-to-eof",
+					File: file,
+					Line: d.Line,
+					Doc:  d.Path,
+					Message: fmt.Sprintf("%s:%d: scoped annotation #%s is the last of %d in the file, so its region runs to end of file — close it with '%s -' if it shouldn't own everything below",
+						file, d.Line, d.Scope, len(ann.Details), tag),
+				})
+			}
 		}
 
 		// mixed-ownership: same doc linked both whole-file and scoped.

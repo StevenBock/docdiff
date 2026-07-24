@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,9 +16,16 @@ import (
 func TestLintFindings(t *testing.T) {
 	res := scanner.NewResult()
 
-	// scope-to-eof: only annotation, scoped.
+	// NOT scope-to-eof: a lone scoped annotation owns the whole file either
+	// way, so there is no question about where its region stops.
 	res.AddAnnotation("src/eof.go", []language.DocAnnotation{
 		{Path: "docs/A.md", Scope: "top", Line: 2},
+	}, "go")
+
+	// scope-to-eof: a second scoped region with nothing closing it.
+	res.AddAnnotation("src/trailing.go", []language.DocAnnotation{
+		{Path: "docs/A.md", Scope: "top", Line: 2},
+		{Path: "docs/A.md", Scope: "rest", Line: 9},
 	}, "go")
 
 	// NOT scope-to-eof: region closed by a terminator.
@@ -26,10 +34,12 @@ func TestLintFindings(t *testing.T) {
 		{Path: language.Terminator, Line: 8},
 	}, "go")
 
-	// mixed-ownership: docs/B.md linked whole-file AND scoped.
+	// mixed-ownership: docs/B.md linked whole-file AND scoped. Terminated, so
+	// this fixture tests mixed-ownership alone and not also scope-to-eof.
 	res.AddAnnotation("src/mixed.go", []language.DocAnnotation{
 		{Path: "docs/B.md", Line: 2},
 		{Path: "docs/B.md", Scope: "part", Line: 6},
+		{Path: language.Terminator, Line: 12},
 	}, "go")
 
 	// fan-out: three distinct whole-file links.
@@ -55,8 +65,8 @@ func TestLintFindings(t *testing.T) {
 		byRule[f.Rule] = append(byRule[f.Rule], f)
 	}
 
-	if got := byRule["scope-to-eof"]; len(got) != 1 || got[0].File != "src/eof.go" {
-		t.Errorf("scope-to-eof = %+v, want exactly src/eof.go", got)
+	if got := byRule["scope-to-eof"]; len(got) != 1 || got[0].File != "src/trailing.go" {
+		t.Errorf("scope-to-eof = %+v, want exactly src/trailing.go (a lone scoped annotation is fine)", got)
 	}
 	if got := byRule["mixed-ownership"]; len(got) != 1 || got[0].File != "src/mixed.go" || got[0].Doc != "docs/B.md" {
 		t.Errorf("mixed-ownership = %+v, want src/mixed.go for docs/B.md", got)
@@ -66,11 +76,15 @@ func TestLintFindings(t *testing.T) {
 	}
 	// Only the file the doc says nothing about gates. closed.go is named
 	// outright; mixed.go links docs/B.md, which was never read as content.
-	if got := byRule["unlinked"]; len(got) != 1 || got[0].File != "src/eof.go" {
-		t.Errorf("unlinked = %+v, want exactly src/eof.go", got)
+	unlinked := map[string]bool{}
+	for _, f := range byRule["unlinked"] {
+		unlinked[f.File] = true
+		if f.Advisory {
+			t.Errorf("unlinked must gate, not be advisory: %+v", f)
+		}
 	}
-	if got := byRule["unlinked"]; len(got) == 1 && got[0].Advisory {
-		t.Error("unlinked must gate, not be advisory")
+	if !unlinked["src/eof.go"] || !unlinked["src/trailing.go"] || unlinked["src/closed.go"] || unlinked["src/fan.go"] {
+		t.Errorf("unlinked = %v, want eof.go and trailing.go only", unlinked)
 	}
 	if got := byRule["basename-only"]; len(got) != 1 || got[0].File != "src/fan.go" || !got[0].Advisory {
 		t.Errorf("basename-only = %+v, want advisory src/fan.go", got)
@@ -175,8 +189,12 @@ func TestLint_Integration(t *testing.T) {
 func Noted() {}
 `), 0644)
 
-	// A problem for the exit code: only-annotation-is-scoped.
+	// A problem for the exit code: a second scoped region with nothing closing
+	// it, so it silently owns everything below.
 	os.WriteFile(filepath.Join(dir, "src", "eof.go"), []byte(`package main
+
+// @doc docs/API.md #first
+func First() {}
 
 // @doc docs/API.md #eof
 func Eof() {}
@@ -193,7 +211,7 @@ func Eof() {}
 		t.Fatalf("lint should exit non-zero on problems, got:\n%s", stdout.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "[scope-to-eof]") || !strings.Contains(out, "src/eof.go:3") {
+	if !strings.Contains(out, "[scope-to-eof]") || !strings.Contains(out, "src/eof.go:6") {
 		t.Errorf("expected scope-to-eof problem for src/eof.go, got:\n%s", out)
 	}
 	if !strings.Contains(out, "'@doc -'") {
@@ -206,5 +224,39 @@ func Eof() {}
 	// nor their filenames — nothing routes a task from the doc to the code.
 	if !strings.Contains(out, "[unlinked]") {
 		t.Errorf("expected unlinked findings for docs/API.md, got:\n%s", out)
+	}
+}
+
+// The ack file shipped as {doc: sha}. A repo full of bare acks must keep
+// parsing after upgrading, and adopting this version must not rewrite them.
+func TestAckEntry_BothFormsRoundTrip(t *testing.T) {
+	raw := []byte(`{"docs/A.md":"abc123","docs/B.md":{"commit":"def456","reason":"rename-only"}}`)
+
+	entries, err := parseAckEntries(raw)
+	if err != nil {
+		t.Fatalf("mixed bare and object forms must parse: %v", err)
+	}
+	if got := entries["docs/A.md"]; got.Commit != "abc123" || got.Reason != "" {
+		t.Errorf("bare sha = %+v, want commit abc123 and no reason", got)
+	}
+	if got := entries["docs/B.md"]; got.Commit != "def456" || got.Reason != "rename-only" {
+		t.Errorf("object form = %+v, want def456 / rename-only", got)
+	}
+
+	out, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(out), `"docs/A.md":"abc123"`) {
+		t.Errorf("a reasonless ack must stay a bare sha, got %s", out)
+	}
+	if !strings.Contains(string(out), `"reason":"rename-only"`) {
+		t.Errorf("a reason must survive the round trip, got %s", out)
+	}
+}
+
+func TestAckEntry_GarbageStillErrors(t *testing.T) {
+	if _, err := parseAckEntries([]byte(`{"docs/A.md":42}`)); err == nil {
+		t.Error("a non-string, non-object entry should be a parse error, not silently dropped")
 	}
 }

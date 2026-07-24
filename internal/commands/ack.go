@@ -20,6 +20,7 @@ var (
 	ackTo       string
 	ackAmend    bool
 	ackRequired bool
+	ackReason   string
 )
 
 var ackCmd = &cobra.Command{
@@ -43,7 +44,11 @@ into that same commit so it points at exactly the code it reviews.
 --required acks, in one command, exactly the docs 'check' would have flagged
 as Required for HEAD's own diff (scope matching included) and that are still
 stale — i.e. "I reviewed everything my last commit affected; no docs needed
-edits". Composes with --amend.`,
+edits". Composes with --amend.
+
+--reason records WHY the doc needed no edit, next to the floor commit. An ack
+asserts "I read this and it is still true"; without a reason, a bulk ack is
+indistinguishable from a rubber stamp when someone revisits it later.`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runAck,
 }
@@ -52,6 +57,7 @@ func init() {
 	ackCmd.Flags().StringVar(&ackTo, "to", "", "floor commit to ack at (HEAD, branch, or sha); default HEAD")
 	ackCmd.Flags().BoolVar(&ackAmend, "amend", false, "fold .docdiff-acks.json into the current HEAD commit (single-commit review)")
 	ackCmd.Flags().BoolVar(&ackRequired, "required", false, "ack the docs check would require for HEAD's own diff (no doc args)")
+	ackCmd.Flags().StringVar(&ackReason, "reason", "", "why the doc needed no edit; recorded alongside the floor commit")
 	rootCmd.AddCommand(ackCmd)
 }
 
@@ -89,7 +95,7 @@ func runAck(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to resolve %q: %w", ref, err)
 	}
 
-	acks, err := loadAcks(rootDir)
+	acks, err := loadAckEntries(rootDir)
 	if err != nil {
 		return fmt.Errorf("failed to load acks: %w", err)
 	}
@@ -100,8 +106,15 @@ func runAck(cmd *cobra.Command, args []string) error {
 		if _, statErr := os.Stat(filepath.Join(rootDir, doc)); statErr != nil {
 			return fmt.Errorf("doc not found: %s", doc)
 		}
-		acks[doc] = sha
-		fmt.Fprintf(out, "Acked %s at %s (won't report stale until its linked code changes again)\n", doc, sha)
+		acks[doc] = ackEntry{Commit: sha, Reason: ackReason}
+		suffix := ""
+		if ackReason != "" {
+			suffix = fmt.Sprintf(" — %s", ackReason)
+		}
+		fmt.Fprintf(out, "Acked %s at %s%s (won't report stale until its linked code changes again)\n", doc, sha, suffix)
+	}
+	if ackReason == "" {
+		fmt.Fprintf(out, "\nNo --reason recorded: in six months these are indistinguishable from a rubber stamp.\n")
 	}
 
 	if err := saveAcks(rootDir, acks); err != nil {

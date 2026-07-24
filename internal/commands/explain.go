@@ -82,6 +82,11 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Fprintf(out, "  ack floor:       %s\n", info)
 		}
+		// The floor says a human signed this off; the reason says why it was
+		// safe, which is the part that decays without a record.
+		if entries, err := loadAckEntries(rootDir); err == nil && entries[doc].Reason != "" {
+			fmt.Fprintf(out, "  ack reason:      %s\n", entries[doc].Reason)
+		}
 	}
 	if baseline == "" {
 		fmt.Fprintln(out, "  effective:       none — cannot compute staleness (doc never committed, no ack)")

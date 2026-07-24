@@ -330,10 +330,14 @@ func TestParser_WeakMentions(t *testing.T) {
 		t.Errorf("bare filename should register, got %v", w.Basenames)
 	}
 
-	// Naming one file is not naming its folder: a sibling's full path must not
-	// register the directory, or dir-only would swallow real gaps.
+	// Naming a sibling file DOES route a reader to the directory, so every
+	// ancestor of every path token counts. This only decides advisory-vs-gating;
+	// requiring a bare directory mention instead pushes ~480 Hangar findings
+	// from advisory into gating, which is the noise that gets lint muted.
 	w2 := p.WeakMentions([]byte("See src/views/git/GitHistoryView.vue for the log.\n"), "")
-	if w2.Dirs["src/views/git"] {
-		t.Errorf("a sibling file path must not count as naming the directory, got %v", w2.Dirs)
+	for _, want := range []string{"src", "src/views", "src/views/git"} {
+		if !w2.Dirs[want] {
+			t.Errorf("sibling path should register ancestor %q, got %v", want, w2.Dirs)
+		}
 	}
 }
