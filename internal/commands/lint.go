@@ -81,10 +81,14 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 
 	if lintJSON {
+		// Revision identifies which build produced these counts. A consumer
+		// diffing `problems` across versions can already attribute the change
+		// per rule (every finding carries one); this says which docdiff decided.
 		payload := struct {
 			Findings []lintFinding `json:"findings"`
 			Problems int           `json:"problems"`
-		}{Findings: findings, Problems: problems}
+			Revision string        `json:"revision,omitempty"`
+		}{Findings: findings, Problems: problems, Revision: buildRevision()}
 		data, _ := json.MarshalIndent(payload, "", "  ")
 		fmt.Fprintln(out, string(data))
 	} else {

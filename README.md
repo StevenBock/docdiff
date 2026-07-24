@@ -229,6 +229,13 @@ and the case to reopen this on.
 docdiff lint [--json]
 ```
 
+`--json` carries a `revision` field: the commit this binary was built from, read
+from Go's VCS build stamps (suffixed `+dirty` when built over uncommitted
+changes, empty when built with `-buildvcs=false`). It is not a hand-maintained
+version constant — one nobody remembers to bump reads as authoritative while
+being wrong. Every finding also carries its `rule`, so a change in the
+`problems` count is attributable per rule without needing a version at all.
+
 ### `docdiff stats`
 
 Per-doc ack-vs-edit ratios over the whole history: how often a doc's linked

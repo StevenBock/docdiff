@@ -2,6 +2,7 @@ package commands
 
 import (
 	"os"
+	"runtime/debug"
 
 	"github.com/spf13/cobra"
 
@@ -64,4 +65,29 @@ func GetRegistry() *language.Registry {
 
 func GetRootDir() string {
 	return rootDir
+}
+
+// buildRevision is the commit this binary was built from, read from Go's VCS
+// build stamps. Deliberately not a hand-maintained version constant: a string
+// nobody remembers to bump reads as authoritative while being wrong, which is
+// worse than absent. Empty when built without VCS info (-buildvcs=false, or
+// from the module cache).
+func buildRevision() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	var rev, modified string
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			modified = s.Value
+		}
+	}
+	if rev != "" && modified == "true" {
+		rev += "+dirty" // built from uncommitted changes; the sha alone would lie
+	}
+	return rev
 }
