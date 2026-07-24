@@ -201,14 +201,29 @@ broken links, and stay advisory: gating on those is what gets the whole check
 suppressed.
 
 Docs whose paths are relative to a subdirectory rather than the repo root can
-say so, and the declared prefix's parents are tried too — so a doc rooted at
-`src-tauri/src/` still resolves a `crates/…` path under `src-tauri/`:
+say so:
 
 ```yaml
 docs:
   docs/tauri/RUST-TAURI-PROCESS-LIFECYCLE.md:
     path_prefix: src-tauri/src/
 ```
+
+Resolution order is: the literal path first, then the declared prefix, then
+**each parent of the prefix** in turn.
+
+That last step is deliberate, and it is why `path_prefix` is a single string
+rather than a list. Real docs that declare a root usually carve out an exception
+for a sibling subtree. The doc above opens with "Rust paths are relative to
+`src-tauri/src/` unless they begin with `crates/`" — two roots in one sentence.
+Walking up covers both from one declaration: `commands/mod.rs` resolves under
+`src-tauri/src/`, and `crates/hangar-core/src/lib.rs` falls through to
+`src-tauri/`. A list would make every such doc restate a prefix it already
+implied, and would need maintaining whenever the exception moved.
+
+If you find a doc whose conventions genuinely aren't nested — two unrelated
+roots, neither an ancestor of the other — that's the case a list would solve,
+and the case to reopen this on.
 
 ```bash
 docdiff lint [--json]

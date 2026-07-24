@@ -108,8 +108,12 @@ func (p *Parser) resolve(raw, prefix string) (string, bool) {
 	}
 	// Walk up from the declared prefix. Docs that root their paths at one
 	// directory usually keep an exception for a sibling subtree — Hangar's
-	// process-lifecycle doc says "relative to src-tauri/src/ unless they begin
-	// with crates/" — and the parent resolves that without a second knob.
+	// process-lifecycle doc opens with "Rust paths are relative to
+	// src-tauri/src/ unless they begin with crates/", two roots in one sentence.
+	// Walking up covers both from one declaration, which is why PathPrefix is a
+	// string and not a list: a list would make every such doc restate a prefix
+	// it already implied. Only reach for a list if a real doc turns up with two
+	// roots that are NOT nested.
 	for _, cand := range prefixChain(prefix) {
 		if p.knownFiles[cand+raw] {
 			return cand + raw, true
