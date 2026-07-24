@@ -58,14 +58,14 @@ func TestLintFindings(t *testing.T) {
 		Dirs:      map[string]bool{},
 	}
 
-	findings := lintFindings(res, "@doc", 3)
+	findings := lintFindings(res, "@doc", 3, nil)
 
 	byRule := make(map[string][]lintFinding)
 	for _, f := range findings {
 		byRule[f.Rule] = append(byRule[f.Rule], f)
 	}
 
-	if got := byRule["scope-to-eof"]; len(got) != 1 || got[0].File != "src/trailing.go" {
+	if got := byRule["scope-to-eof-unbounded"]; len(got) != 1 || got[0].File != "src/trailing.go" {
 		t.Errorf("scope-to-eof = %+v, want exactly src/trailing.go (a lone scoped annotation is fine)", got)
 	}
 	if got := byRule["mixed-ownership"]; len(got) != 1 || got[0].File != "src/mixed.go" || got[0].Doc != "docs/B.md" {
@@ -91,7 +91,7 @@ func TestLintFindings(t *testing.T) {
 	}
 
 	// Higher threshold silences fan-out.
-	for _, f := range lintFindings(res, "@doc", 4) {
+	for _, f := range lintFindings(res, "@doc", 4, nil) {
 		if f.Rule == "fan-out" {
 			t.Errorf("threshold 4 should silence a 3-doc fan-out: %+v", f)
 		}
@@ -116,7 +116,7 @@ func TestLintFindings_ScopeDrift(t *testing.T) {
 	res.DocScopeMarkers["docs/B.md"] = []string{}
 
 	var drift []lintFinding
-	for _, f := range lintFindings(res, "@doc", 3) {
+	for _, f := range lintFindings(res, "@doc", 3, nil) {
 		if f.Rule == "scope-drift" {
 			drift = append(drift, f)
 		}
@@ -211,7 +211,7 @@ func Eof() {}
 		t.Fatalf("lint should exit non-zero on problems, got:\n%s", stdout.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "[scope-to-eof]") || !strings.Contains(out, "src/eof.go:6") {
+	if !strings.Contains(out, "[scope-to-eof-unbounded]") || !strings.Contains(out, "src/eof.go:6") {
 		t.Errorf("expected scope-to-eof problem for src/eof.go, got:\n%s", out)
 	}
 	if !strings.Contains(out, "'@doc -'") {
@@ -258,5 +258,60 @@ func TestAckEntry_BothFormsRoundTrip(t *testing.T) {
 func TestAckEntry_GarbageStillErrors(t *testing.T) {
 	if _, err := parseAckEntries([]byte(`{"docs/A.md":42}`)); err == nil {
 		t.Error("a non-string, non-object entry should be a parse error, not silently dropped")
+	}
+}
+
+// The split exists because these two shapes are structurally identical but mean
+// different things, and only reading the code tells them apart. A scope whose
+// region above owns real code gates; one that covers its whole file stays
+// visible as an advisory rather than being silenced — three of Hangar's 47 such
+// files turned out to be scopes that were never bounded, i.e. real defects.
+func TestLintFindings_ScopeCoversFileIsAdvisory(t *testing.T) {
+	res := scanner.NewResult()
+	res.AddAnnotation("src/covers.go", []language.DocAnnotation{
+		{Path: "docs/A.md", Line: 1},
+		{Path: "docs/B.md", Scope: "all", Line: 2},
+	}, "go")
+	res.AddAnnotation("src/bounded.go", []language.DocAnnotation{
+		{Path: "docs/A.md", Scope: "head", Line: 2},
+		{Path: "docs/B.md", Scope: "tail", Line: 40},
+	}, "go")
+
+	// docs/A.md owns real code only in bounded.go.
+	boundary := func(file string, line int) bool { return file == "src/bounded.go" }
+
+	byRule := map[string][]lintFinding{}
+	for _, f := range lintFindings(res, "@doc", 99, boundary) {
+		byRule[f.Rule] = append(byRule[f.Rule], f)
+	}
+
+	if got := byRule["scope-covers-file"]; len(got) != 1 || got[0].File != "src/covers.go" {
+		t.Fatalf("scope-covers-file = %+v, want exactly src/covers.go", got)
+	}
+	if !byRule["scope-covers-file"][0].Advisory {
+		t.Error("scope-covers-file must be advisory — silencing it hides scopes that were never bounded")
+	}
+	if got := byRule["scope-to-eof-unbounded"]; len(got) != 1 || got[0].File != "src/bounded.go" {
+		t.Fatalf("scope-to-eof-unbounded = %+v, want exactly src/bounded.go", got)
+	}
+	if byRule["scope-to-eof-unbounded"][0].Advisory {
+		t.Error("scope-to-eof-unbounded must gate")
+	}
+}
+
+// A nil predicate means "cannot tell" and must gate, not demote: a finding that
+// should have been advisory is noise, one that should have gated and didn't is
+// a defect nobody sees.
+func TestLintFindings_UnknownBoundaryGates(t *testing.T) {
+	res := scanner.NewResult()
+	res.AddAnnotation("src/x.go", []language.DocAnnotation{
+		{Path: "docs/A.md", Line: 1},
+		{Path: "docs/B.md", Scope: "all", Line: 2},
+	}, "go")
+
+	for _, f := range lintFindings(res, "@doc", 99, nil) {
+		if f.Rule == "scope-covers-file" {
+			t.Errorf("unknown boundary must not demote to advisory: %+v", f)
+		}
 	}
 }

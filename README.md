@@ -181,9 +181,8 @@ Stale documentation relationships are highlighted in red.
 ### `docdiff lint`
 
 Check the health of the annotation map itself, independent of staleness.
-Problems exit non-zero: a scoped annotation that follows another one and so
-runs to end of file (a file whose **only** annotation is scoped is not flagged,
-since it owns the whole file either way — see below), a file linking the same
+Problems exit non-zero: `scope-to-eof-unbounded` (a scoped annotation running to
+end of file with a real region above it — see below), a file linking the same
 doc both whole-file and scoped (whole-file wins, the scopes are dead), and
 fan-out (one file whole-file-linking ≥ N docs; `lint.fan_out_threshold`,
 default 3), and scope drift — a doc using section markers (HTML comments of
@@ -191,7 +190,17 @@ the form `@scope <name>`) whose markers no longer match the code annotation
 scopes targeting it (both directions; docs without markers are never
 checked).
 
-A `scope-to-eof` finding has two remedies and both clear it: put `@doc -` on the
+Scope-to-EOF is split by whether a boundary actually exists above the annotation.
+**`scope-to-eof-unbounded`** gates: something above owns real code, so how far
+the scope reaches is a live question. **`scope-covers-file`** is advisory: nothing
+above it owns any code, so the scope narrows nothing. That is usually deliberate
+— but a scope written at the top and never bounded looks *identical* from the
+file's shape, and only reading what the scope names against what the code does
+tells them apart. So it stays visible instead of being silenced. (A file whose
+**only** annotation is scoped is not reported at all; it owns the whole file
+either way.)
+
+Both have the same two remedies, and both clear the finding: put `@doc -` on the
 **last line** to mark the region as deliberately ending at EOF, or earlier if the
 scope shouldn't own everything below. Terminating is worth preferring even when
 the scope legitimately does own the tail — code appended later then lands

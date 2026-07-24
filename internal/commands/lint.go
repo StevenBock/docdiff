@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -26,15 +28,15 @@ var lintCmd = &cobra.Command{
 	Long: `Check the health of the annotation map itself, independent of staleness.
 
 Problems (non-zero exit):
-  scope-to-eof     a scoped annotation that follows another one runs to end of
-                   file. Put the terminator (tag + '-') on the LAST line to mark
-                   that as deliberate, or earlier if the scope shouldn't own
-                   everything below — both clear the finding. Terminating is
-                   worth preferring on its own merits: code appended later then
-                   lands outside the region and shows up as orphaned, instead of
-                   being silently absorbed into whatever scope reached the end.
-                   A file whose ONLY annotation is scoped is not flagged: it
-                   owns the whole file either way
+  scope-to-eof-unbounded
+                   a scoped annotation runs to end of file with a real region
+                   above it, so how far it reaches is a live question. Put the
+                   terminator (tag + '-') on the LAST line to mark that as
+                   deliberate, or earlier if the scope shouldn't own everything
+                   below — both clear it. Terminating is worth preferring on its
+                   own merits: code appended later then lands outside the region
+                   and shows up as orphaned, instead of being silently absorbed
+                   into whatever scope reached the end
   mixed-ownership  a file links the same doc both whole-file and scoped;
                    whole-file wins, the scopes are dead
   fan-out          one file whole-file-links many docs, so every change flags
@@ -49,6 +51,13 @@ Problems (non-zero exit):
                    task from the doc to the file
 
 Advisory (never affects the exit code):
+  scope-covers-file
+                   a scoped annotation covers its whole file — nothing above it
+                   owns any code, so the scope name narrows nothing. Usually
+                   deliberate, but a scope that was written at the top and never
+                   bounded looks identical from here, so it stays visible rather
+                   than being silenced. A file whose ONLY annotation is scoped
+                   is not reported at all: it owns the whole file either way
   dir-only         the doc names the file's directory but not the file
   basename-only    the doc names the bare filename but not its path`,
 	RunE: runLint,
@@ -75,7 +84,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
-	findings := lintFindings(scanResult, cfg.AnnotationTag, cfg.LintFanOutThreshold())
+	findings := lintFindings(scanResult, cfg.AnnotationTag, cfg.LintFanOutThreshold(), fileBoundaryAbove(scanResult))
 
 	out := cmd.OutOrStdout()
 	problems := 0
@@ -132,7 +141,13 @@ func writeLintHuman(out io.Writer, findings []lintFinding, problems int) {
 	}
 }
 
-func lintFindings(res *scanner.Result, tag string, fanOutThreshold int) []lintFinding {
+// boundaryAbove reports whether any annotation preceding annLine in file owns
+// substantive code. nil means "cannot tell" — every scope-to-eof then gates,
+// which is the conservative direction: a finding that should have been advisory
+// is noise, one that should have gated and didn't is a defect nobody sees.
+type boundaryAbove func(file string, annLine int) bool
+
+func lintFindings(res *scanner.Result, tag string, fanOutThreshold int, hasBoundaryAbove boundaryAbove) []lintFinding {
 	var out []lintFinding
 
 	for file, ann := range res.Annotations {
@@ -142,19 +157,37 @@ func lintFindings(res *scanner.Result, tag string, fanOutThreshold int) []lintFi
 		// exactly as a whole-file link would, and needs no terminator.
 		if len(ann.Details) > 1 {
 			if d := ann.Details[len(ann.Details)-1]; d.Scope != "" && d.Path != language.Terminator {
-				out = append(out, lintFinding{
-					Rule: "scope-to-eof",
-					File: file,
-					Line: d.Line,
-					Doc:  d.Path,
+				// Two findings, not one at two volumes. If something above owns
+				// code, a boundary exists and the region's extent is a real
+				// question — that gates. If nothing does, the scope covers its
+				// whole file, which is usually deliberate but is sometimes a
+				// scope that was never bounded; those look identical from here,
+				// so it stays visible as an advisory rather than being silenced.
+				if hasBoundaryAbove != nil && !hasBoundaryAbove(file, d.Line) {
+					out = append(out, lintFinding{
+						Rule:     "scope-covers-file",
+						File:     file,
+						Line:     d.Line,
+						Doc:      d.Path,
+						Advisory: true,
+						Message: fmt.Sprintf("%s:%d: scoped annotation #%s covers the whole file — nothing above it owns any code, so the scope name is doing no narrowing. Re-link whole-file, or bound it with '%s -' if it was meant to cover less",
+							file, d.Line, d.Scope, tag),
+					})
+				} else {
 					// Name BOTH remedies. Saying only "if it shouldn't own
 					// everything below" tells an author whose tail genuinely is
-					// theirs that the fix isn't for them, so they conclude
-					// there is nothing to do — which is how a correct finding
-					// becomes a permanently unactionable one.
-					Message: fmt.Sprintf("%s:%d: scoped annotation #%s is the last of %d in the file, so its region runs to end of file — put '%s -' on the last line to mark that deliberate, or earlier if it shouldn't own everything below",
-						file, d.Line, d.Scope, len(ann.Details), tag),
-				})
+					// theirs that the fix isn't for them, so they conclude there
+					// is nothing to do — which is how a correct finding becomes
+					// a permanently unactionable one.
+					out = append(out, lintFinding{
+						Rule: "scope-to-eof-unbounded",
+						File: file,
+						Line: d.Line,
+						Doc:  d.Path,
+						Message: fmt.Sprintf("%s:%d: scoped annotation #%s is the last of %d in the file, so its region runs to end of file — put '%s -' on the last line to mark that deliberate, or earlier if it shouldn't own everything below",
+							file, d.Line, d.Scope, len(ann.Details), tag),
+					})
+				}
 			}
 		}
 
@@ -315,4 +348,28 @@ func lintFindings(res *scanner.Result, tag string, fanOutThreshold int) []lintFi
 		return a.Doc < b.Doc
 	})
 	return out
+}
+
+// fileBoundaryAbove builds the boundaryAbove predicate over real files, reading
+// each one at most once. A file that cannot be read or whose language is not
+// registered reports true, so its finding keeps gating rather than being quietly
+// demoted on an I/O error.
+func fileBoundaryAbove(res *scanner.Result) boundaryAbove {
+	cache := make(map[string]bool)
+	return func(file string, annLine int) bool {
+		key := fmt.Sprintf("%s\x00%d", file, annLine)
+		if v, ok := cache[key]; ok {
+			return v
+		}
+		v := true
+		if ann := res.Annotations[file]; ann != nil {
+			if strat, ok := registry.GetByExtension(filepath.Ext(file)); ok {
+				if content, err := os.ReadFile(filepath.Join(rootDir, file)); err == nil {
+					v = regionOwnsCodeAbove(content, strat.CommentPatterns(), ann.Details, annLine)
+				}
+			}
+		}
+		cache[key] = v
+		return v
+	}
 }

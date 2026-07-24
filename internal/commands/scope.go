@@ -3,6 +3,9 @@ package commands
 // @doc CLAUDE.md
 
 import (
+	"regexp"
+	"strings"
+
 	"github.com/StevenBock/docdiff/internal/git"
 	"github.com/StevenBock/docdiff/internal/language"
 	"github.com/StevenBock/docdiff/internal/scanner"
@@ -75,4 +78,56 @@ func ownedRegion(details []language.DocAnnotation, line int) (int, int) {
 		}
 	}
 	return line, end
+}
+
+// regionOwnsCodeAbove reports whether any annotation preceding annLine owns
+// substantive content — a line that is non-blank and not wholly comment.
+//
+// This separates two structurally identical shapes that mean different things:
+// a scope deliberately covering its whole file, and a scope written at the top
+// and never bounded. It cannot tell them apart on its own — only reading what
+// the scope names against what the code does can — so it is used to pick which
+// finding to raise, never to suppress one.
+//
+// Content above the file's FIRST annotation belongs to no region, so a `<?php`,
+// `<script setup>`, shebang or import preamble is excluded without naming any
+// of them.
+func regionOwnsCodeAbove(content []byte, patterns []*regexp.Regexp, details []language.DocAnnotation, annLine int) bool {
+	mask := make([]bool, len(content))
+	for _, p := range patterns {
+		for _, loc := range p.FindAllIndex(content, -1) {
+			for i := loc[0]; i < loc[1] && i < len(mask); i++ {
+				mask[i] = true
+			}
+		}
+	}
+
+	substantive := make(map[int]bool)
+	off, lineNo := 0, 1
+	for _, line := range strings.SplitAfter(string(content), "\n") {
+		for i := 0; i < len(line); i++ {
+			if b := line[i]; !mask[off+i] && b != ' ' && b != '\t' && b != '\n' && b != '\r' {
+				substantive[lineNo] = true
+				break
+			}
+		}
+		off += len(line)
+		lineNo++
+	}
+
+	for _, d := range details {
+		if d.Line >= annLine {
+			continue
+		}
+		start, end := ownedRegion(details, d.Line)
+		if end > annLine-1 {
+			end = annLine - 1
+		}
+		for n := start; n <= end; n++ {
+			if substantive[n] {
+				return true
+			}
+		}
+	}
+	return false
 }
