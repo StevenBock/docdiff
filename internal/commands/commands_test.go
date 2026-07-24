@@ -486,7 +486,10 @@ func Unowned() { changed() }
 	if err := checkCmd.RunE(checkCmd, nil); err != nil {
 		t.Fatalf("change below '@doc -' must not flag any doc, got %v:\n%s", err, stdout.String())
 	}
-	if strings.Contains(stdout.String(), "docs/API.md") {
+	// Scoped to the Required section: "Outstanding from HEAD" legitimately names
+	// API.md here (the setup commit added its annotation), which says nothing
+	// about whether this working-tree change flagged it.
+	if strings.Contains(stdout.String(), "docs/API.md: needs update") {
 		t.Errorf("API.md should not be affected, got:\n%s", stdout.String())
 	}
 
@@ -897,6 +900,65 @@ func Handler() {
 	}
 	if !strings.Contains(stdout.String(), "Already updated") || !strings.Contains(stdout.String(), "docs/API.md") {
 		t.Errorf("expected API.md in the already-updated section, got:\n%s", stdout.String())
+	}
+}
+
+// Committing makes the working tree clean, so check's changed set is empty and
+// nothing is "linked to your changes" — but the docs that commit put on review
+// are still outstanding. They used to be counted as "unrelated stale", which
+// told the agent to ignore exactly the ones that mattered.
+func TestCheck_OutstandingFromHead(t *testing.T) {
+	dir := setupTestProject(t)
+	initTestEnv(t, dir)
+
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() {
+    committed()
+}
+`), 0644)
+	commitAll(t, dir, "Change handler without touching its doc")
+
+	initTestEnv(t, dir)
+	checkStaged, checkJSON, checkFiles, checkNoBacklinks = false, false, nil, true
+	defer func() { checkNoBacklinks, checkFiles = false, nil }()
+
+	var stdout bytes.Buffer
+	checkCmd.SetOut(&stdout)
+	if err := checkCmd.RunE(checkCmd, nil); err != nil {
+		t.Errorf("outstanding-from-HEAD reports on an already-made commit; it must not gate, got: %v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Outstanding from HEAD (1)") || !strings.Contains(out, "docs/API.md") {
+		t.Errorf("expected API.md listed as outstanding from HEAD, got:\n%s", out)
+	}
+	// The wording is the fix: a bare count is what got ignored before.
+	if !strings.Contains(out, "docdiff ack --required --amend") {
+		t.Errorf("outstanding section must name the command that clears it, got:\n%s", out)
+	}
+	if strings.Contains(out, "unrelated stale") {
+		t.Errorf("HEAD-caused staleness must not be counted as unrelated, got:\n%s", out)
+	}
+
+	// Acking it resolves the section.
+	ackRequired = true
+	defer func() { ackRequired = false }()
+	var ackOut bytes.Buffer
+	ackCmd.SetOut(&ackOut)
+	if err := ackCmd.RunE(ackCmd, nil); err != nil {
+		t.Fatalf("ack --required failed: %v", err)
+	}
+	if !strings.Contains(ackOut.String(), "docs/API.md") {
+		t.Fatalf("ack --required should have found the same doc, got:\n%s", ackOut.String())
+	}
+
+	stdout.Reset()
+	if err := checkCmd.RunE(checkCmd, nil); err != nil {
+		t.Errorf("check should still pass after ack, got: %v", err)
+	}
+	if strings.Contains(stdout.String(), "Outstanding from HEAD") {
+		t.Errorf("acked doc should clear the outstanding section, got:\n%s", stdout.String())
 	}
 }
 

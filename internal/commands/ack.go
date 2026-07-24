@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/StevenBock/docdiff/internal/git"
+	"github.com/StevenBock/docdiff/internal/report"
 	"github.com/StevenBock/docdiff/internal/scanner"
 )
 
@@ -130,7 +131,13 @@ func requiredDocsAtHead(g *git.Git, errOut io.Writer) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
+	return docsRequiredByHead(g, scanResult, computeStaleDocs(g, scanResult.FilesByDoc, errOut))
+}
 
+// docsRequiredByHead is requiredDocsAtHead's core, taking an existing scan and
+// stale set so `check` can reuse it to label its hidden-stale docs without
+// re-scanning.
+func docsRequiredByHead(g *git.Git, scanResult *scanner.Result, stale map[string]*report.StaleDoc) ([]string, error) {
 	changedList, err := g.FilesChangedInCommit("HEAD", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list HEAD's changed files: %w", err)
@@ -145,8 +152,6 @@ func requiredDocsAtHead(g *git.Git, errOut io.Writer) ([]string, error) {
 		return nil, fmt.Errorf("failed to diff HEAD: %w", err)
 	}
 	hunks, annOnlyFiles := splitAnnotationHunks(rawHunks)
-
-	stale := computeStaleDocs(g, scanResult.FilesByDoc, errOut)
 
 	var docs []string
 	for doc, files := range scanResult.FilesByDoc {

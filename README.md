@@ -86,6 +86,12 @@ They're listed in a separate "Ownership map changed" info section (JSON:
 `ownership_changed`), and `report` skips them the same way when computing
 staleness.
 
+Committing empties the working tree, so `check` alone would go quiet on the docs
+your last commit just put on review. Those are listed as **Outstanding from HEAD**
+(JSON: `outstanding_from_head`) with the command that clears them — the same set
+`ack --required` computes. It never gates the exit code, since it reports on a
+commit already made; remaining stale docs unrelated to HEAD stay a hidden count.
+
 ### `docdiff report`
 
 Show documentation coverage and staleness report.

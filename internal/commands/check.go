@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/StevenBock/docdiff/internal/git"
+	"github.com/StevenBock/docdiff/internal/report"
 	"github.com/StevenBock/docdiff/internal/scanner"
 )
 
@@ -243,9 +244,13 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	sort.Slice(ownership, func(i, j int) bool { return ownership[i].Doc < ownership[j].Doc })
 	sort.Strings(warnings)
 
-	// Count stale docs that are NOT related to the current change, so we can
-	// say how much noise we hid. Best-effort: needs the metadata file.
-	unrelatedStale := unrelatedStaleCount(g, scanResult.FilesByDoc, affected, cmd.ErrOrStderr())
+	// Stale docs the current change doesn't explain. Split by whether HEAD's own
+	// commit put them on review: committing makes the working tree clean, so
+	// without this split `check` reports "nothing linked to your changes" while
+	// the docs that very commit affected sit in the hidden count, labelled
+	// "unrelated". Non-gating either way — it reports on an already-made commit.
+	stale := computeStaleDocs(g, scanResult.FilesByDoc, cmd.ErrOrStderr())
+	outstanding, unrelatedStale := partitionStale(g, scanResult, stale, affected)
 
 	// Surface missing back-links for the docs this change touches, so they're
 	// caught in the normal flow instead of a separate `report --undocumented`.
@@ -268,12 +273,12 @@ func runCheck(cmd *cobra.Command, args []string) error {
 
 	out := cmd.OutOrStdout()
 	if checkJSON {
-		writeCheckJSON(out, source, results, ownership, undocRefs, unrelatedStale, needsUpdate, warnings)
+		writeCheckJSON(out, source, results, ownership, undocRefs, outstanding, unrelatedStale, needsUpdate, warnings)
 	} else {
 		if note := scopeNote(g, source, changed); note != "" {
 			fmt.Fprintln(out, note)
 		}
-		writeCheckHuman(out, source, results, ownership, undocRefs, unrelatedStale, needsUpdate, warnings)
+		writeCheckHuman(out, source, results, ownership, undocRefs, outstanding, unrelatedStale, needsUpdate, warnings)
 	}
 
 	if needsUpdate > 0 {
@@ -343,14 +348,31 @@ func scopeNote(g *git.Git, source string, changed []string) string {
 	return ""
 }
 
-func unrelatedStaleCount(g *git.Git, filesByDoc map[string][]string, affected map[string]bool, errOut io.Writer) int {
-	count := 0
-	for doc := range computeStaleDocs(g, filesByDoc, errOut) {
-		if !affected[doc] {
-			count++
+// partitionStale splits the stale docs the current change doesn't explain into
+// those HEAD's own diff put on review ("outstanding from HEAD") and the rest,
+// which are genuinely unrelated. Best-effort: if HEAD can't be diffed (no
+// commits yet), everything falls back to unrelated.
+func partitionStale(g *git.Git, scanResult *scanner.Result, stale map[string]*report.StaleDoc, affected map[string]bool) ([]string, int) {
+	fromHead := make(map[string]bool)
+	if docs, err := docsRequiredByHead(g, scanResult, stale); err == nil {
+		for _, d := range docs {
+			fromHead[d] = true
 		}
 	}
-	return count
+
+	outstanding := make([]string, 0)
+	unrelated := 0
+	for doc := range stale {
+		switch {
+		case affected[doc]: // already reported in a section above
+		case fromHead[doc]:
+			outstanding = append(outstanding, doc)
+		default:
+			unrelated++
+		}
+	}
+	sort.Strings(outstanding)
+	return outstanding, unrelated
 }
 
 func changedFilesSinceBaseline(g *git.Git, doc string, files []string, source string, acks map[string]string, errOut io.Writer) []string {
@@ -407,12 +429,13 @@ func changedFilesSinceBaseline(g *git.Git, doc string, files []string, source st
 	return filtered
 }
 
-func writeCheckHuman(out io.Writer, source string, results []checkResult, ownership []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int, warnings []string) {
+func writeCheckHuman(out io.Writer, source string, results []checkResult, ownership []checkResult, undocRefs []scanner.UndocumentedRef, outstanding []string, unrelatedStale, needsUpdate int, warnings []string) {
 	// "staged changes" + the literal word "changes" in the templates below
 	// would print "staged changes changes".
 	source = strings.TrimSuffix(source, " changes")
 	if len(results) == 0 && len(ownership) == 0 {
 		fmt.Fprintf(out, "No docs are linked to your %s changes.\n", source)
+		writeOutstanding(out, outstanding)
 		if unrelatedStale > 0 {
 			fmt.Fprintf(out, "(%d unrelated stale docs hidden — run 'docdiff report' to see them.)\n", unrelatedStale)
 		}
@@ -473,6 +496,8 @@ func writeCheckHuman(out io.Writer, source string, results []checkResult, owners
 		}
 	}
 
+	writeOutstanding(out, outstanding)
+
 	if unrelatedStale > 0 {
 		fmt.Fprintf(out, "\nUnrelated stale docs: %d hidden (run 'docdiff report' for the full picture).\n", unrelatedStale)
 	}
@@ -482,6 +507,23 @@ func writeCheckHuman(out io.Writer, source string, results []checkResult, owners
 		fmt.Fprintln(out, "editing a doc in the same commit as its linked source marks it reviewed.")
 		fmt.Fprintln(out, "New to docdiff? Run 'docdiff onboard' for agent-ready workflow instructions.")
 	}
+}
+
+// writeOutstanding names the docs HEAD's own commit put on review, and the
+// commands that clear them. This section exists for the agent that committed,
+// ran check, saw green and stopped — so a bare count is not enough; it has to
+// say what to do next.
+func writeOutstanding(out io.Writer, outstanding []string) {
+	if len(outstanding) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "\nOutstanding from HEAD (%d) — your last commit changed code these docs cover:\n", len(outstanding))
+	for _, doc := range outstanding {
+		fmt.Fprintf(out, "  %s\n", doc)
+	}
+	fmt.Fprintln(out, "  Next: edit any that are now wrong and fold them in with 'git commit --amend',")
+	fmt.Fprintln(out, "  then record the rest as reviewed-needing-no-edit:")
+	fmt.Fprintln(out, "    docdiff ack --required --amend")
 }
 
 const broadDocLinkedFileThreshold = 20
@@ -593,29 +635,34 @@ func annotationWarnings(ann *scanner.Annotation, doc string) []string {
 	return nil
 }
 
-func writeCheckJSON(out io.Writer, source string, results []checkResult, ownership []checkResult, undocRefs []scanner.UndocumentedRef, unrelatedStale, needsUpdate int, warnings []string) {
+func writeCheckJSON(out io.Writer, source string, results []checkResult, ownership []checkResult, undocRefs []scanner.UndocumentedRef, outstanding []string, unrelatedStale, needsUpdate int, warnings []string) {
 	if undocRefs == nil {
 		undocRefs = []scanner.UndocumentedRef{}
 	}
 	if warnings == nil {
 		warnings = []string{}
 	}
+	if outstanding == nil {
+		outstanding = []string{}
+	}
 	payload := struct {
-		Source           string                    `json:"source"`
-		Affected         []checkResult             `json:"affected"`
-		OwnershipChanged []checkResult             `json:"ownership_changed"`
-		UndocumentedRefs []scanner.UndocumentedRef `json:"undocumented_refs"`
-		NeedsUpdate      int                       `json:"needs_update"`
-		UnrelatedStale   int                       `json:"unrelated_stale"`
-		Warnings         []string                  `json:"warnings"`
+		Source              string                    `json:"source"`
+		Affected            []checkResult             `json:"affected"`
+		OwnershipChanged    []checkResult             `json:"ownership_changed"`
+		UndocumentedRefs    []scanner.UndocumentedRef `json:"undocumented_refs"`
+		NeedsUpdate         int                       `json:"needs_update"`
+		OutstandingFromHead []string                  `json:"outstanding_from_head"`
+		UnrelatedStale      int                       `json:"unrelated_stale"`
+		Warnings            []string                  `json:"warnings"`
 	}{
-		Source:           source,
-		Affected:         results,
-		OwnershipChanged: ownership,
-		UndocumentedRefs: undocRefs,
-		NeedsUpdate:      needsUpdate,
-		UnrelatedStale:   unrelatedStale,
-		Warnings:         warnings,
+		Source:              source,
+		Affected:            results,
+		OwnershipChanged:    ownership,
+		UndocumentedRefs:    undocRefs,
+		NeedsUpdate:         needsUpdate,
+		OutstandingFromHead: outstanding,
+		UnrelatedStale:      unrelatedStale,
+		Warnings:            warnings,
 	}
 	data, _ := json.MarshalIndent(payload, "", "  ")
 	fmt.Fprintln(out, string(data))
