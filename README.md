@@ -182,15 +182,22 @@ Stale documentation relationships are highlighted in red.
 
 Check the health of the annotation map itself, independent of staleness.
 Problems exit non-zero: a scoped annotation that follows another one and so
-runs to end of file (close it with `@doc -` if it shouldn't own everything
-below — a file whose **only** annotation is scoped is not flagged, since it owns
-the whole file either way), a file linking the same
+runs to end of file (a file whose **only** annotation is scoped is not flagged,
+since it owns the whole file either way — see below), a file linking the same
 doc both whole-file and scoped (whole-file wins, the scopes are dead), and
 fan-out (one file whole-file-linking ≥ N docs; `lint.fan_out_threshold`,
 default 3), and scope drift — a doc using section markers (HTML comments of
 the form `@scope <name>`) whose markers no longer match the code annotation
 scopes targeting it (both directions; docs without markers are never
 checked).
+
+A `scope-to-eof` finding has two remedies and both clear it: put `@doc -` on the
+**last line** to mark the region as deliberately ending at EOF, or earlier if the
+scope shouldn't own everything below. Terminating is worth preferring even when
+the scope legitimately does own the tail — code appended later then lands
+*outside* the region and surfaces as orphaned, rather than being silently
+absorbed into whatever scope happened to reach the end of the file. That is a
+correctness property, not tidiness.
 
 Back-link coverage is tiered by how well a doc actually routes a reader to the
 files that link to it. Only **unlinked** gates — the doc names neither the file,

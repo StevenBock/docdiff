@@ -27,9 +27,14 @@ var lintCmd = &cobra.Command{
 
 Problems (non-zero exit):
   scope-to-eof     a scoped annotation that follows another one runs to end of
-                   file — close it with the terminator form (tag + '-') if it
-                   shouldn't own everything below. A file whose ONLY annotation
-                   is scoped is not flagged: it owns the whole file either way
+                   file. Put the terminator (tag + '-') on the LAST line to mark
+                   that as deliberate, or earlier if the scope shouldn't own
+                   everything below — both clear the finding. Terminating is
+                   worth preferring on its own merits: code appended later then
+                   lands outside the region and shows up as orphaned, instead of
+                   being silently absorbed into whatever scope reached the end.
+                   A file whose ONLY annotation is scoped is not flagged: it
+                   owns the whole file either way
   mixed-ownership  a file links the same doc both whole-file and scoped;
                    whole-file wins, the scopes are dead
   fan-out          one file whole-file-links many docs, so every change flags
@@ -142,7 +147,12 @@ func lintFindings(res *scanner.Result, tag string, fanOutThreshold int) []lintFi
 					File: file,
 					Line: d.Line,
 					Doc:  d.Path,
-					Message: fmt.Sprintf("%s:%d: scoped annotation #%s is the last of %d in the file, so its region runs to end of file — close it with '%s -' if it shouldn't own everything below",
+					// Name BOTH remedies. Saying only "if it shouldn't own
+					// everything below" tells an author whose tail genuinely is
+					// theirs that the fix isn't for them, so they conclude
+					// there is nothing to do — which is how a correct finding
+					// becomes a permanently unactionable one.
+					Message: fmt.Sprintf("%s:%d: scoped annotation #%s is the last of %d in the file, so its region runs to end of file — put '%s -' on the last line to mark that deliberate, or earlier if it shouldn't own everything below",
 						file, d.Line, d.Scope, len(ann.Details), tag),
 				})
 			}
