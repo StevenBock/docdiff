@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -36,6 +37,23 @@ type DocPolicy struct {
 	// changes and linked-file add/delete/rename gate; body edits do not. Docs
 	// that inventory files (module maps, ownership indexes) want this.
 	Gate string `yaml:"gate" json:"gate"`
+
+	// PathPrefix is what this doc's relative paths hang off. A doc that states
+	// "Rust paths are relative to src-tauri/src/" writes `commands/mod.rs`,
+	// which resolves against no real file; declaring the prefix here lets the
+	// back-link reader find it. Tried only after the literal path fails, so a
+	// repo-root-relative path in the same doc keeps working.
+	PathPrefix string `yaml:"path_prefix" json:"path_prefix"`
+}
+
+// DocPathPrefix returns the declared path prefix for a doc, normalized to end
+// in "/" (empty when none is declared).
+func (c *Config) DocPathPrefix(doc string) string {
+	p := c.Docs[doc].PathPrefix
+	if p == "" || strings.HasSuffix(p, "/") {
+		return p
+	}
+	return p + "/"
 }
 
 // StructuralDocs returns the docs declared with `gate: structural`.

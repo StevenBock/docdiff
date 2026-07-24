@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strings"
 
@@ -37,9 +38,13 @@ Problems (non-zero exit):
                    markers with no matching code scope, or code scopes with no
                    marker (only docs with at least one marker are checked)
 
+  unlinked         a doc names neither the file, its directory, nor its bare
+                   filename, yet the file links to the doc — nothing routes a
+                   task from the doc to the file
+
 Advisory (never affects the exit code):
-  vestigial-link   a doc never mentions a file that links to it — the link may
-                   be vestigial, or the doc is genuinely high-level`,
+  dir-only         the doc names the file's directory but not the file
+  basename-only    the doc names the bare filename but not its path`,
 	RunE: runLint,
 }
 
@@ -233,21 +238,46 @@ func lintFindings(res *scanner.Result, tag string, fanOutThreshold int) []lintFi
 		}
 	}
 
-	// vestigial-link: the doc was read as content and never mentions a file
-	// that links to it. Advisory only — plenty of good docs are high-level.
+	// Back-link coverage, tiered by how well the doc actually routes a reader to
+	// the file. Only "unlinked" gates: a doc that names the directory or the
+	// bare filename is weaker coverage, not a broken link, and gating on those
+	// is what gets the whole check muted.
 	for doc, files := range res.FilesByDoc {
 		refs, read := res.DocRefs[doc]
 		if !read {
 			continue
 		}
+		weak := res.DocWeakRefs[doc]
 		for _, f := range files {
-			if !refs[f] {
+			if refs[f] {
+				continue
+			}
+			switch {
+			case weak.Basenames[path.Base(f)]:
 				out = append(out, lintFinding{
-					Rule:     "vestigial-link",
+					Rule:     "basename-only",
 					File:     f,
 					Doc:      doc,
 					Advisory: true,
-					Message:  fmt.Sprintf("%s never mentions %s, yet %s links to it — the link may be vestigial", doc, f, f),
+					Message: fmt.Sprintf("%s names %s but not its path — an agent grepping for %s finds the doc, one navigating from the doc has to guess the directory",
+						doc, path.Base(f), path.Base(f)),
+				})
+			case weak.Dirs[path.Dir(f)]:
+				out = append(out, lintFinding{
+					Rule:     "dir-only",
+					File:     f,
+					Doc:      doc,
+					Advisory: true,
+					Message: fmt.Sprintf("%s names %s/ but not %s — the doc routes to the directory, not to the file",
+						doc, path.Dir(f), f),
+				})
+			default:
+				out = append(out, lintFinding{
+					Rule: "unlinked",
+					File: f,
+					Doc:  doc,
+					Message: fmt.Sprintf("%s never mentions %s, its directory, or its filename, yet %s links to it — the doc cannot route a task to this file",
+						doc, f, f),
 				})
 			}
 		}

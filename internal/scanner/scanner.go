@@ -338,15 +338,17 @@ func (s *Scanner) scanDocsForRefs(rootDir string, result *Result) error {
 		//   that the doc owns that file, and counting it would manufacture a
 		//   finding for every path in a shell snippet.
 		linkedFiles := filesWithDocToThis[relDocPath]
+		prefix := s.config.DocPathPrefix(relDocPath)
 
-		allRefs := parser.ParseIncludingCode(content)
+		allRefs := parser.ParseWith(content, docparse.Options{IncludeFenced: true, PathPrefix: prefix})
 		refSet := make(map[string]bool, len(allRefs))
 		for _, ref := range allRefs {
 			refSet[ref.Path] = true
 		}
 		result.DocRefs[relDocPath] = refSet
+		result.DocWeakRefs[relDocPath] = parser.WeakMentions(content, prefix)
 
-		for _, ref := range parser.Parse(content) {
+		for _, ref := range parser.ParseWith(content, docparse.Options{PathPrefix: prefix}) {
 			if linkedFiles != nil && linkedFiles[ref.Path] {
 				continue
 			}

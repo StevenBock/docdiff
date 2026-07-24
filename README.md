@@ -181,9 +181,25 @@ fan-out (one file whole-file-linking ≥ N docs; `lint.fan_out_threshold`,
 default 3), and scope drift — a doc using section markers (HTML comments of
 the form `@scope <name>`) whose markers no longer match the code annotation
 scopes targeting it (both directions; docs without markers are never
-checked). Vestigial-link
-findings — a doc that never mentions a file linking to it — are advisory only
-and never affect the exit code.
+checked).
+
+Back-link coverage is tiered by how well a doc actually routes a reader to the
+files that link to it. Only **unlinked** gates — the doc names neither the file,
+its directory, nor its bare filename, so nothing gets a reader from the doc to
+the code. **dir-only** (names the directory, or a sibling file in it) and
+**basename-only** (names the filename but not its path) are weaker coverage, not
+broken links, and stay advisory: gating on those is what gets the whole check
+suppressed.
+
+Docs whose paths are relative to a subdirectory rather than the repo root can
+say so, and the declared prefix's parents are tried too — so a doc rooted at
+`src-tauri/src/` still resolves a `crates/…` path under `src-tauri/`:
+
+```yaml
+docs:
+  docs/tauri/RUST-TAURI-PROCESS-LIFECYCLE.md:
+    path_prefix: src-tauri/src/
+```
 
 ```bash
 docdiff lint [--json]

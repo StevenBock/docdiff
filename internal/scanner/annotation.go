@@ -1,6 +1,9 @@
 package scanner
 
-import "github.com/StevenBock/docdiff/internal/language"
+import (
+	"github.com/StevenBock/docdiff/internal/docparse"
+	"github.com/StevenBock/docdiff/internal/language"
+)
 
 type Annotation struct {
 	FilePath string
@@ -29,6 +32,10 @@ type Result struct {
 	// (`<!-- @scope name -->`), in order of appearance, deduplicated. Markers
 	// are opt-in doc-side mirrors of code annotation scopes.
 	DocScopeMarkers map[string][]string
+	// DocWeakRefs maps each doc read as content to the mentions that fall short
+	// of naming a file: bare filenames and directories. Back-link tiering uses
+	// it to rank how well a doc routes to its linked files.
+	DocWeakRefs map[string]docparse.Weak
 }
 
 func NewResult() *Result {
@@ -40,6 +47,7 @@ func NewResult() *Result {
 		UndocumentedRefs: make([]UndocumentedRef, 0),
 		DocRefs:          make(map[string]map[string]bool),
 		DocScopeMarkers:  make(map[string][]string),
+		DocWeakRefs:      make(map[string]docparse.Weak),
 	}
 }
 

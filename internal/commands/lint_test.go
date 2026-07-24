@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StevenBock/docdiff/internal/docparse"
 	"github.com/StevenBock/docdiff/internal/language"
 	"github.com/StevenBock/docdiff/internal/scanner"
 )
@@ -38,8 +39,14 @@ func TestLintFindings(t *testing.T) {
 		{Path: "docs/C.md", Line: 4},
 	}, "go")
 
-	// vestigial-link: docs/A.md was read and mentions closed.go but not eof.go.
+	// Back-link tiers: docs/A.md was read and names closed.go outright. It says
+	// nothing at all about eof.go (unlinked) and only names fan.go's directory
+	// (dir-only, advisory).
 	res.DocRefs["docs/A.md"] = map[string]bool{"src/closed.go": true}
+	res.DocWeakRefs["docs/A.md"] = docparse.Weak{
+		Basenames: map[string]bool{"fan.go": true},
+		Dirs:      map[string]bool{},
+	}
 
 	findings := lintFindings(res, "@doc", 3)
 
@@ -57,19 +64,16 @@ func TestLintFindings(t *testing.T) {
 	if got := byRule["fan-out"]; len(got) != 1 || got[0].File != "src/fan.go" {
 		t.Errorf("fan-out = %+v, want exactly src/fan.go", got)
 	}
-	for _, f := range byRule["vestigial-link"] {
-		if !f.Advisory {
-			t.Errorf("vestigial-link must be advisory: %+v", f)
-		}
+	// Only the file the doc says nothing about gates. closed.go is named
+	// outright; mixed.go links docs/B.md, which was never read as content.
+	if got := byRule["unlinked"]; len(got) != 1 || got[0].File != "src/eof.go" {
+		t.Errorf("unlinked = %+v, want exactly src/eof.go", got)
 	}
-	// eof.go and fan.go link docs/A.md without being mentioned by it;
-	// closed.go is mentioned. mixed.go links docs/B.md which was never read.
-	vest := make(map[string]bool)
-	for _, f := range byRule["vestigial-link"] {
-		vest[f.File] = true
+	if got := byRule["unlinked"]; len(got) == 1 && got[0].Advisory {
+		t.Error("unlinked must gate, not be advisory")
 	}
-	if !vest["src/eof.go"] || !vest["src/fan.go"] || vest["src/closed.go"] || vest["src/mixed.go"] {
-		t.Errorf("vestigial-link files = %v, want eof.go and fan.go only", vest)
+	if got := byRule["basename-only"]; len(got) != 1 || got[0].File != "src/fan.go" || !got[0].Advisory {
+		t.Errorf("basename-only = %+v, want advisory src/fan.go", got)
 	}
 
 	// Higher threshold silences fan-out.
@@ -198,8 +202,9 @@ func Eof() {}
 	if strings.Contains(out, "NOTES.md never mentions src/noted.go") {
 		t.Errorf("doc outside docs dir was not read as content:\n%s", out)
 	}
-	// docs/API.md exists but never mentions its linked files: advisory only.
-	if !strings.Contains(out, "[vestigial-link]") {
-		t.Errorf("expected vestigial-link advisories, got:\n%s", out)
+	// docs/API.md exists but names neither its linked files, their directory,
+	// nor their filenames — nothing routes a task from the doc to the code.
+	if !strings.Contains(out, "[unlinked]") {
+		t.Errorf("expected unlinked findings for docs/API.md, got:\n%s", out)
 	}
 }

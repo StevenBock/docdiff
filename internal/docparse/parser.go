@@ -3,6 +3,7 @@ package docparse
 import (
 	"bufio"
 	"bytes"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -75,21 +76,64 @@ func isPathBoundary(line string, start, end int) bool {
 	return true
 }
 
+// Options tunes one reading of a doc.
+type Options struct {
+	// IncludeFenced reads fenced code blocks too.
+	IncludeFenced bool
+	// PathPrefix is tried when a path matches no known file, for docs whose
+	// paths are relative to a subdirectory rather than the repo root.
+	PathPrefix string
+}
+
 // Parse returns the files a doc references in its prose, skipping fenced code
 // blocks. This is the "does the doc claim to own this file" reading, so a path
 // inside a command example does not count.
 func (p *Parser) Parse(content []byte) []FileReference {
-	return p.parse(content, false)
+	return p.ParseWith(content, Options{})
 }
 
 // ParseIncludingCode also reads fenced code blocks. This is the "can an agent
 // get from this doc to that file" reading: `npx vitest run src/Foo.test.ts` in a
 // fenced block is a real route to the file even though it claims no ownership.
 func (p *Parser) ParseIncludingCode(content []byte) []FileReference {
-	return p.parse(content, true)
+	return p.ParseWith(content, Options{IncludeFenced: true})
 }
 
-func (p *Parser) parse(content []byte, includeFenced bool) []FileReference {
+// resolve maps a path as written in a doc onto a known file, falling back to
+// the doc's declared prefix. The literal path wins, so a doc with a prefix can
+// still name repo-root-relative paths.
+func (p *Parser) resolve(raw, prefix string) (string, bool) {
+	if p.knownFiles[raw] {
+		return raw, true
+	}
+	// Walk up from the declared prefix. Docs that root their paths at one
+	// directory usually keep an exception for a sibling subtree — Hangar's
+	// process-lifecycle doc says "relative to src-tauri/src/ unless they begin
+	// with crates/" — and the parent resolves that without a second knob.
+	for _, cand := range prefixChain(prefix) {
+		if p.knownFiles[cand+raw] {
+			return cand + raw, true
+		}
+	}
+	return "", false
+}
+
+// prefixChain is the declared prefix followed by each of its parents.
+func prefixChain(prefix string) []string {
+	var out []string
+	for prefix != "" {
+		out = append(out, prefix)
+		trimmed := strings.TrimSuffix(prefix, "/")
+		i := strings.LastIndex(trimmed, "/")
+		if i < 0 {
+			break
+		}
+		prefix = trimmed[:i+1]
+	}
+	return out
+}
+
+func (p *Parser) ParseWith(content []byte, opts Options) []FileReference {
 	if p.pattern == nil {
 		return nil
 	}
@@ -111,17 +155,12 @@ func (p *Parser) parse(content []byte, includeFenced bool) []FileReference {
 				continue
 			}
 
-			fullPath := normalizePath(line[m[2]:m[3]] + line[m[4]:m[5]])
-
 			if isURL(line, m[0]) {
 				continue
 			}
 
-			if !p.knownFiles[fullPath] {
-				continue
-			}
-
-			if seen[fullPath] {
+			fullPath, ok := p.resolve(normalizePath(line[m[2]:m[3]]+line[m[4]:m[5]]), opts.PathPrefix)
+			if !ok || seen[fullPath] {
 				continue
 			}
 			seen[fullPath] = true
@@ -142,7 +181,7 @@ func (p *Parser) parse(content []byte, includeFenced bool) []FileReference {
 			continue
 		}
 
-		if inCodeBlock && !includeFenced {
+		if inCodeBlock && !opts.IncludeFenced {
 			continue
 		}
 
@@ -200,4 +239,59 @@ func isURL(line string, idx int) bool {
 		return false
 	}
 	return strings.HasSuffix(line[:idx], "://")
+}
+
+// Weak is what a doc gives short of naming a file outright: the bare filenames
+// and the directory paths it mentions. Back-link tiering uses it to separate
+// "names nothing at all" from "points at roughly the right place". Ownership
+// never does — a directory is not a claim on the files under it.
+type Weak struct {
+	Basenames map[string]bool
+	Dirs      map[string]bool
+}
+
+// dirTokenPattern matches multi-segment slash paths with or without a trailing
+// slash, so `src/views/git/` and `src/views/git` both count. A sibling file's
+// full path matches whole, so it does NOT also register as its own directory —
+// naming one file is not naming the folder.
+var dirTokenPattern = regexp.MustCompile(`[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)+/?`)
+
+// WeakMentions reads the whole doc, fenced blocks included: a directory in a
+// command example still points an agent at roughly the right place.
+func (p *Parser) WeakMentions(content []byte, prefix string) Weak {
+	w := Weak{Basenames: map[string]bool{}, Dirs: map[string]bool{}}
+
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			continue
+		}
+		for _, variant := range []string{line, expandBraces(line)} {
+			if variant == "" {
+				continue
+			}
+			if p.pattern != nil {
+				for _, m := range p.pattern.FindAllStringSubmatchIndex(variant, -1) {
+					if len(m) >= 6 && isPathBoundary(variant, m[0], m[1]) {
+						w.Basenames[path.Base(normalizePath(variant[m[2]:m[3]]+variant[m[4]:m[5]]))] = true
+					}
+				}
+			}
+			for _, d := range dirTokenPattern.FindAllString(variant, -1) {
+				// Every ancestor of every path token, not just bare directory
+				// mentions: a doc that names src/views/git/GitLog.vue routes a
+				// reader to src/views/git as surely as writing the directory
+				// does. This tier only decides advisory-vs-gating, so erring
+				// toward "the doc points somewhere useful" is the safe side.
+				for d = strings.TrimSuffix(normalizePath(d), "/"); d != "" && d != "." && d != "/"; d = path.Dir(d) {
+					w.Dirs[d] = true
+					for _, cand := range prefixChain(prefix) {
+						w.Dirs[cand+d] = true
+					}
+				}
+			}
+		}
+	}
+	return w
 }

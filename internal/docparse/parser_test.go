@@ -288,3 +288,52 @@ func TestParser_BoundariesStillReject(t *testing.T) {
 		t.Errorf("trailing-period behaviour changed unintentionally, got %v", refs)
 	}
 }
+
+func TestParser_PathPrefixResolvesDocRelativePaths(t *testing.T) {
+	// docs/tauri/RUST-TAURI-PROCESS-LIFECYCLE.md:13 states "Rust paths are
+	// relative to `src-tauri/src/` unless they begin with `crates/`", so both
+	// forms appear in the same doc and both must resolve.
+	known := []string{
+		"src-tauri/src/commands/mod.rs",
+		"src-tauri/crates/hangar-core/src/lib.rs",
+		"README.md",
+	}
+	p := New(known, []string{".rs", ".md"})
+	content := []byte("Edit `commands/mod.rs`; core entry is `crates/hangar-core/src/lib.rs`. Root: README.md\n")
+
+	got := map[string]bool{}
+	for _, ref := range p.ParseWith(content, Options{PathPrefix: "src-tauri/src/"}) {
+		got[ref.Path] = true
+	}
+	for _, want := range known {
+		if !got[want] {
+			t.Errorf("prefix should resolve %s (literal paths must keep working too), got %v", want, got)
+		}
+	}
+
+	// Without the prefix declared, only the repo-root-relative path resolves;
+	// both doc-relative forms fall through, which is the status quo this opts
+	// out of.
+	if refs := p.Parse(content); len(refs) != 1 || refs[0].Path != "README.md" {
+		t.Errorf("undeclared prefix must leave doc-relative paths unresolved, got %v", refs)
+	}
+}
+
+func TestParser_WeakMentions(t *testing.T) {
+	p := New([]string{"src/views/git/GitLogToolbar.vue"}, []string{".vue"})
+	w := p.WeakMentions([]byte("Toolbar lives under `src/views/git/`; see also `GitCommitLog.vue`.\n"), "")
+
+	if !w.Dirs["src/views/git"] {
+		t.Errorf("trailing-slash directory should register, got %v", w.Dirs)
+	}
+	if !w.Basenames["GitCommitLog.vue"] {
+		t.Errorf("bare filename should register, got %v", w.Basenames)
+	}
+
+	// Naming one file is not naming its folder: a sibling's full path must not
+	// register the directory, or dir-only would swallow real gaps.
+	w2 := p.WeakMentions([]byte("See src/views/git/GitHistoryView.vue for the log.\n"), "")
+	if w2.Dirs["src/views/git"] {
+		t.Errorf("a sibling file path must not count as naming the directory, got %v", w2.Dirs)
+	}
+}
