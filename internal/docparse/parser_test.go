@@ -202,3 +202,89 @@ func TestNormalizePath(t *testing.T) {
 		}
 	}
 }
+
+// Fixtures are verbatim lines from the Hangar repo, where these cases produced
+// ~10% of 1203 vestigial-link findings on files the docs plainly do name.
+func TestParser_FencedCodeIsAReferenceForBacklinksOnly(t *testing.T) {
+	exts := []string{".ts", ".vue", ".rs"}
+	// docs/frontend/SQUAWKS-UI.md:44
+	content := []byte("# Squawks\n\nRun the tests:\n\n```bash\nnpx vitest run src/components/SquawkEditor.test.ts\n```\n")
+	p := New([]string{"src/components/SquawkEditor.test.ts"}, exts)
+
+	if refs := p.Parse(content); len(refs) != 0 {
+		t.Errorf("Parse must skip fenced code (a command example claims no ownership), got %v", refs)
+	}
+
+	refs := p.ParseIncludingCode(content)
+	if len(refs) != 1 || refs[0].Path != "src/components/SquawkEditor.test.ts" {
+		t.Errorf("ParseIncludingCode must see the fenced path (it routes an agent to the file), got %v", refs)
+	}
+	if refs[0].Line != 6 {
+		t.Errorf("line number should survive the fence, got %d want 6", refs[0].Line)
+	}
+}
+
+func TestParser_BraceGlobExpansion(t *testing.T) {
+	// docs/tauri/RUST-TAURI-LOG-INGESTION.md:36
+	const dir = "src-tauri/crates/ingestion-engine/src/parser/"
+	names := []string{"json", "logfmt", "regex", "grok", "dissect", "kv", "csv"}
+	known := make([]string, 0, len(names))
+	for _, n := range names {
+		known = append(known, dir+n+".rs")
+	}
+	content := []byte("| Change an existing parser's output | `" + dir + "{json,logfmt,regex,grok,dissect,kv,csv}.rs` |\n")
+
+	got := make(map[string]bool)
+	for _, ref := range New(known, []string{".rs"}).Parse(content) {
+		got[ref.Path] = true
+	}
+	for _, want := range known {
+		if !got[want] {
+			t.Errorf("brace glob should expand to %s, got %v", want, got)
+		}
+	}
+}
+
+func TestExpandBraces(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"a/{x,y}.go", "a/x.go a/y.go"},
+		{"a/{x, y}.go", "a/x.go a/y.go"},                         // spaces after commas
+		{"plain/path.go", ""},                                    // no braces: nothing to do
+		{"{a,b}", "a b"},                                         // no prefix or suffix
+		{"pre/{a}.go", "pre/a.go"},                               // single alternative
+		{"a/{x,y}.go b/{p,q}.rs", "a/x.go a/y.go b/p.rs b/q.rs"}, // two groups
+	}
+	for _, tt := range tests {
+		if got := expandBraces(tt.in); got != tt.want {
+			t.Errorf("expandBraces(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestParser_AdjacentPathsSeparatedByOneSpace(t *testing.T) {
+	// docs/frontend/TERMINAL-UI.md:91 — two paths sharing a single space.
+	known := []string{"src/lib/terminal-color-resolver.test.ts", "src/components/Terminal.test.ts"}
+	content := []byte(known[0] + " " + known[1] + "\n")
+
+	refs := New(known, []string{".ts"}).Parse(content)
+	if len(refs) != 2 {
+		t.Fatalf("both paths should be seen; a shared delimiter must not hide the second, got %v", refs)
+	}
+}
+
+func TestParser_BoundariesStillReject(t *testing.T) {
+	// Removing the context groups must not loosen what counts as a path.
+	p := New([]string{"file.go"}, []string{".go"})
+	for _, line := range []string{"file.gox", "prefixfile.go", "file.go.bak", "https://x.dev/file.go"} {
+		if refs := p.Parse([]byte(line)); len(refs) != 0 {
+			t.Errorf("%q must not read as a reference to file.go, got %v", line, refs)
+		}
+	}
+	// Pre-existing limitation, unchanged by the boundary refactor: '.' counts as
+	// path continuation, so a filename ending a sentence is not a match. Left
+	// as-is deliberately — widening it belongs in its own change, not a
+	// bug-fix commit that is supposed to be behaviour-neutral here.
+	if refs := p.Parse([]byte("see file.go.")); len(refs) != 0 {
+		t.Errorf("trailing-period behaviour changed unintentionally, got %v", refs)
+	}
+}

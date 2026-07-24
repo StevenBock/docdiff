@@ -328,18 +328,30 @@ func (s *Scanner) scanDocsForRefs(rootDir string, result *Result) error {
 			return
 		}
 
-		refs := parser.Parse(content)
+		// Two readings of the same doc, deliberately asymmetric:
+		//
+		//   back-link coverage (DocRefs) includes fenced code — a path in a
+		//   `npx vitest run ...` example still routes an agent to the file, and
+		//   treating it as unmentioned is what made vestigial-link unusable;
+		//
+		//   undocumented-refs excludes it — a command example is not a claim
+		//   that the doc owns that file, and counting it would manufacture a
+		//   finding for every path in a shell snippet.
 		linkedFiles := filesWithDocToThis[relDocPath]
 
-		refSet := make(map[string]bool, len(refs))
-		for _, ref := range refs {
+		allRefs := parser.ParseIncludingCode(content)
+		refSet := make(map[string]bool, len(allRefs))
+		for _, ref := range allRefs {
 			refSet[ref.Path] = true
+		}
+		result.DocRefs[relDocPath] = refSet
+
+		for _, ref := range parser.Parse(content) {
 			if linkedFiles != nil && linkedFiles[ref.Path] {
 				continue
 			}
 			result.AddUndocumentedRef(relDocPath, ref.Path, ref.Line)
 		}
-		result.DocRefs[relDocPath] = refSet
 		result.DocScopeMarkers[relDocPath] = scopeMarkers(content)
 	}
 

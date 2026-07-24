@@ -156,9 +156,9 @@ func util() {}`,
 
 	t.Run("identifies orphaned files", func(t *testing.T) {
 		tmpDir := setupTestDir(t, map[string]string{
-			"src/annotated.go":   `// @doc docs/API.md`,
-			"src/orphan1.go":     `package main`,
-			"src/orphan2.go":     `package main`,
+			"src/annotated.go": `// @doc docs/API.md`,
+			"src/orphan1.go":   `package main`,
+			"src/orphan2.go":   `package main`,
 		})
 
 		cfg := config.DefaultConfig()
@@ -250,9 +250,9 @@ func util() {}`,
 
 	t.Run("skips .git directory", func(t *testing.T) {
 		tmpDir := setupTestDir(t, map[string]string{
-			"src/service.go":     `// @doc docs/API.md`,
-			".git/config":        `[core]`,
-			".git/hooks/pre.go":  `// @doc docs/HOOK.md`,
+			"src/service.go":    `// @doc docs/API.md`,
+			".git/config":       `[core]`,
+			".git/hooks/pre.go": `// @doc docs/HOOK.md`,
 		})
 
 		cfg := config.DefaultConfig()
@@ -318,10 +318,10 @@ func handler() {}`,
 
 	t.Run("ignores unsupported file types", func(t *testing.T) {
 		tmpDir := setupTestDir(t, map[string]string{
-			"src/service.go":  `// @doc docs/API.md`,
-			"src/data.json":   `{"@doc": "docs/JSON.md"}`,
-			"src/style.css":   `/* @doc docs/CSS.md */`,
-			"docs/README.md":  `# @doc docs/README.md`,
+			"src/service.go": `// @doc docs/API.md`,
+			"src/data.json":  `{"@doc": "docs/JSON.md"}`,
+			"src/style.css":  `/* @doc docs/CSS.md */`,
+			"docs/README.md": `# @doc docs/README.md`,
 		})
 
 		cfg := config.DefaultConfig()
@@ -434,5 +434,35 @@ func TestResult_OrphanedFiles(t *testing.T) {
 	}
 	if !orphanedSet["src/orphan2.go"] {
 		t.Error("orphan2.go should be in orphaned list")
+	}
+}
+
+// The two consumers of a doc's reference set want opposite fence policies:
+// back-link coverage counts a fenced path (it routes an agent to the file),
+// undocumented-refs does not (a command example claims no ownership).
+func TestScanner_FencePolicyIsAsymmetric(t *testing.T) {
+	tmpDir := setupTestDir(t, map[string]string{
+		"src/linked.go": "package main\n// @doc docs/GUIDE.md\nfunc Linked() {}\n",
+		"src/other.go":  "package main\nfunc Other() {}\n",
+		"docs/GUIDE.md": "# Guide\n\nRun it:\n\n```bash\ngo test ./src/linked.go ./src/other.go\n```\n",
+	})
+
+	result, err := New(config.DefaultConfig(), language.DefaultRegistry()).Scan(tmpDir)
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	refs := result.DocRefs["docs/GUIDE.md"]
+	if !refs["src/linked.go"] {
+		t.Error("DocRefs must include fenced paths, else the doc reads as never mentioning its own linked file")
+	}
+	if !refs["src/other.go"] {
+		t.Error("DocRefs must include every fenced path, not just linked ones")
+	}
+
+	for _, u := range result.UndocumentedRefs {
+		if u.DocPath == "docs/GUIDE.md" {
+			t.Errorf("a path inside a fenced command example must not become an undocumented ref, got %+v", u)
+		}
 	}
 }
