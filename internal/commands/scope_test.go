@@ -55,3 +55,33 @@ func TestOwnedRegion(t *testing.T) {
 		t.Errorf("region for last line 5 = [%d,%d], want [5,eof]", s, e)
 	}
 }
+
+// The Vue mixed-comment-style bug delivered Details out of line order. Lint's
+// scope-to-eof read the wrong annotation as last; region computation did not,
+// because ownedRegion scans for the nearest following line rather than trusting
+// position. extractDetailed now sorts, but this pins the property so region
+// ownership can never acquire an ordering dependency by accident.
+func TestOwnedRegion_IndependentOfDetailOrder(t *testing.T) {
+	inOrder := []language.DocAnnotation{
+		{Path: "docs/A.md", Scope: "script", Line: 2},
+		{Path: "docs/B.md", Scope: "mid", Line: 606},
+		{Path: "docs/C.md", Scope: "tail", Line: 908},
+	}
+	// Grouped by comment style, as the parser used to emit for a .vue file.
+	shuffled := []language.DocAnnotation{inOrder[1], inOrder[2], inOrder[0]}
+
+	for _, line := range []int{2, 606, 908} {
+		wantStart, wantEnd := ownedRegion(inOrder, line)
+		gotStart, gotEnd := ownedRegion(shuffled, line)
+		if wantStart != gotStart || wantEnd != gotEnd {
+			t.Errorf("line %d: ordered [%d,%d] vs shuffled [%d,%d] — region must not depend on slice order",
+				line, wantStart, wantEnd, gotStart, gotEnd)
+		}
+	}
+	if _, end := ownedRegion(inOrder, 2); end != 605 {
+		t.Errorf("the line-2 region must stop at the next annotation, got end=%d want 605", end)
+	}
+	if _, end := ownedRegion(inOrder, 908); end != eof {
+		t.Errorf("the last annotation must own to EOF, got end=%d", end)
+	}
+}

@@ -5,6 +5,7 @@ package language
 import (
 	"bytes"
 	"regexp"
+	"sort"
 	"strconv"
 )
 
@@ -77,6 +78,13 @@ func (b *BaseStrategy) ExtractFromPatterns(content []byte, tag string, patterns 
 // `#<scope>` suffix inside each comment, recording the line the annotation sits
 // on. The scope is #-prefixed so trailing prose after a bare path annotation is
 // never mistaken for a scope. Exact (path, scope, line) duplicates are collapsed.
+//
+// The result is sorted by line. Matching runs one comment pattern at a time, so
+// a file mixing styles — a .vue with `//` in <script> and `<!-- -->` in
+// <template> — would otherwise come back grouped by style, putting a line-2
+// annotation after a line-900 one. Consumers treat Details as the file's
+// annotations in source order (lint's scope-to-eof asks which one is last), so
+// the ordering is part of the contract, not an accident of matching.
 func extractDetailed(content []byte, tag string, patterns []*regexp.Regexp) []DocAnnotation {
 	tagPattern := regexp.MustCompile(regexp.QuoteMeta(tag) + `\s+(\S+)(?:\s+#(\S+))?`)
 
@@ -101,5 +109,8 @@ func extractDetailed(content []byte, tag string, patterns []*regexp.Regexp) []Do
 			}
 		}
 	}
+	// Stable: two annotations can share a line (one comment, two tags), and
+	// their left-to-right order is the only sensible tiebreak.
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Line < out[j].Line })
 	return out
 }

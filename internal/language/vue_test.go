@@ -139,3 +139,38 @@ export default {}
 		})
 	}
 }
+
+// Shape of Hangar's src/components/Sidebar.vue: `//` in <script setup>, HTML
+// comments in <template>. Matching runs per comment pattern, so without a sort
+// the line-2 annotation came back LAST and lint's scope-to-eof named it as the
+// file's final annotation — advice that, if followed, would insert a terminator
+// at line 2 and sever the doc from the 600 lines it owns.
+func TestVue_DetailsAreLineOrderedAcrossCommentStyles(t *testing.T) {
+	src := `<script setup lang="ts">
+// @doc docs/frontend/WORKSPACE-SHELL.md #sidebar-script
+const x = 1
+</script>
+
+<template>
+  <!-- @doc docs/SQUAWKS.md #squawks-section-gate -->
+  <div/>
+  <!-- @doc docs/frontend/WORKSPACE-SHELL.md #sidebar-template-tail -->
+  <div/>
+  <!-- @doc docs/THEMING.md #sidebar-token-remap -->
+  <div/>
+</template>
+`
+	got := NewVueStrategy().ExtractDetailed([]byte(src), "@doc")
+	wantLines := []int{2, 7, 9, 11}
+	if len(got) != len(wantLines) {
+		t.Fatalf("got %d annotations, want %d: %+v", len(got), len(wantLines), got)
+	}
+	for i, want := range wantLines {
+		if got[i].Line != want {
+			t.Errorf("Details[%d].Line = %d, want %d (full: %+v)", i, got[i].Line, want, got)
+		}
+	}
+	if last := got[len(got)-1]; last.Scope != "sidebar-token-remap" {
+		t.Errorf("last annotation = %+v, want the one at EOF (#sidebar-token-remap)", last)
+	}
+}

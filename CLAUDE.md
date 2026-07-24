@@ -40,6 +40,8 @@ The `internal/language` package uses a strategy pattern for extensibility:
 
 **Annotation scopes.** `@doc <path>` links a whole file to a doc. `@doc <path> #<scope>` (a `#`-prefixed suffix, e.g. `@doc docs/CORE.md #settings.general`) narrows ownership: the scoped annotation owns the code region from its line down to the next annotation, so a change elsewhere in a central/mirror file doesn't flag it. `@doc -` is a region terminator: it closes the current scoped region without assigning the code below it to any doc (`language.Terminator`; kept in `Details` as a boundary, excluded from `FilesByDoc`). `check` matches changed diff hunks against these regions (diff-backed modes only — `--files` and untracked/new files fall back to whole-file). Extraction lives in `extractDetailed`/`ExtractDetailed` on `BaseStrategy` (inherited by every language for free); the region + hunk-overlap logic is in `internal/commands/scope.go`.
 
+**`Details` is sorted by line, and that is a contract.** Matching runs one comment pattern at a time, so a file mixing comment styles — a `.vue` with `//` in `<script setup>` and `<!-- -->` in `<template>` — comes out of the match loop grouped by style, with a line-2 annotation sitting after a line-900 one. `extractDetailed` sorts before returning. Consumers that ask positional questions (`lint`'s scope-to-eof asks which annotation is *last*) depend on this; `ownedRegion` deliberately does not, scanning for the nearest following line instead of trusting position, so region ownership stays correct even if the invariant is ever broken again.
+
 ### File Type Detection
 
 `internal/filetype/Detector` uses a priority cascade to identify file types:
