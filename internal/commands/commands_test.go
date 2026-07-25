@@ -1338,3 +1338,54 @@ func Beta() { betaOnlyChange() }
 		t.Errorf("BETA owns the changed region and must still see its diff:\n%s", stdout.String())
 	}
 }
+
+// Narrowing in `changes` is file-granular, not hunk-granular, and that is
+// deliberate: once a file has an in-scope change the whole file's diff prints,
+// because a hunk-filtered diff shows fragments without their surroundings and
+// this is the command an author reads to decide what to edit. It also errs
+// toward showing too much, which is the safe direction for review. Pinned so
+// the choice can't drift into hunk-filtering by accident.
+func TestChanges_NarrowsByFileNotByHunk(t *testing.T) {
+	dir := setupTestProject(t)
+
+	os.WriteFile(filepath.Join(dir, "docs", "ALPHA.md"), []byte("# Alpha\n\nsrc/central.go\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "docs", "BETA.md"), []byte("# Beta\n\nsrc/central.go\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/ALPHA.md #alpha
+func Alpha() {}
+
+// @doc docs/BETA.md #beta
+func Beta() {}
+`), 0644)
+	commitAll(t, dir, "Add central file")
+
+	// One commit touching BOTH regions.
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/ALPHA.md #alpha
+func Alpha() { alphaProbe() }
+
+// @doc docs/BETA.md #beta
+func Beta() { betaProbe() }
+`), 0644)
+	commitAll(t, dir, "Change both regions")
+
+	initTestEnv(t, dir)
+	changesWorkTree, changesStaged, changesAI, changesSummary, changesCommits = false, false, false, false, false
+
+	var stdout bytes.Buffer
+	changesCmd.SetOut(&stdout)
+	if err := changesCmd.RunE(changesCmd, []string{"docs/ALPHA.md"}); err != nil {
+		t.Fatalf("changes failed: %v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "alphaProbe") {
+		t.Errorf("ALPHA owns this hunk and must see it:\n%s", out)
+	}
+	if !strings.Contains(out, "betaProbe") {
+		t.Errorf("file-granular narrowing: once the file is kept its whole diff prints, "+
+			"including hunks ALPHA does not own — if this now fails, narrowing became "+
+			"hunk-granular and the docs need updating:\n%s", out)
+	}
+}

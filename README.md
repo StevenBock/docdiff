@@ -137,6 +137,11 @@ Like `report` and `explain`, this shows only the files whose changed hunks land
 in a region the doc owns — otherwise it prints another doc's hunk from a shared
 central file and invites an edit for code this doc doesn't describe.
 
+The narrowing is by **file, not by hunk**: once a file has one in-scope change,
+its whole diff is shown, including hunks the doc doesn't own. That is deliberate
+— a hunk-filtered diff would show fragments without their surrounding code, and
+this is the command you read to decide what to edit.
+
 ### `docdiff ack`
 
 Mark a doc reviewed when its linked code changed but the doc needed **no** edit.
