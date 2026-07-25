@@ -61,7 +61,7 @@ func runReport(cmd *cobra.Command, args []string) error {
 	}
 
 	g := git.New(rootDir)
-	staleDocs := computeStaleDocs(g, scanResult.FilesByDoc, cmd.ErrOrStderr())
+	staleDocs := computeStaleDocs(g, scanResult, cmd.ErrOrStderr())
 
 	rpt := report.NewReport()
 	rpt.StaleDocs = staleDocs

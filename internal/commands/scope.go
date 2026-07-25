@@ -131,3 +131,29 @@ func regionOwnsCodeAbove(content []byte, patterns []*regexp.Regexp, details []la
 	}
 	return false
 }
+
+// scopedChangedFiles narrows a doc's changed-file list to the files whose
+// changed hunks actually land in a region that doc owns, over a COMMIT RANGE
+// rather than the working tree. Without it, scoped annotations protect against
+// staleness in `check` but not in `report`/`explain`/`graph` — so a central file
+// carrying 30 well-placed scopes flags every doc that touches it, which is the
+// opposite of what scoping is for.
+//
+// Conservative in every failure direction: a git error, a file with no hunk
+// data (added, deleted, renamed), or a whole-file annotation all keep the file.
+func scopedChangedFiles(g *git.Git, doc, from, to string, files []string, anns map[string]*scanner.Annotation, tag string) []string {
+	if len(files) == 0 {
+		return files
+	}
+	hunks, err := g.ChangedHunksBetween(from, to, files, tag)
+	if err != nil {
+		return files
+	}
+	kept := make([]string, 0, len(files))
+	for _, f := range files {
+		if hit, _ := fileHitsDoc(anns[f], doc, hunks); hit {
+			kept = append(kept, f)
+		}
+	}
+	return kept
+}

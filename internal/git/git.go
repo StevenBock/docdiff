@@ -478,6 +478,23 @@ func (g *Git) ChangedHunksSince(fromHash string, staged bool, files []string, ta
 	return parseHunks(out, tag), nil
 }
 
+// ChangedHunksBetween returns, per file, the new-side line ranges changed
+// between two commits — the committed-history counterpart of
+// ChangedHunksSince. parseHunks is diff-text generic, so scope matching works
+// over a commit range exactly as it does over the working tree.
+func (g *Git) ChangedHunksBetween(fromHash, toHash string, files []string, tag string) (map[string][]LineRange, error) {
+	args := []string{"diff", "--unified=0", "--no-color", fromHash, toHash}
+	if len(files) > 0 {
+		args = append(args, "--")
+		args = append(args, files...)
+	}
+	out, err := g.run(args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseHunks(out, tag), nil
+}
+
 func parseHunks(diff string, tag string) map[string][]LineRange {
 	result := make(map[string][]LineRange)
 	if diff == "" {

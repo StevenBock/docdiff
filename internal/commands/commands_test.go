@@ -1206,3 +1206,86 @@ func TestIsCI(t *testing.T) {
 		t.Error("isCI() should return true when GITHUB_ACTIONS=true")
 	}
 }
+
+// A central file carrying several scoped annotations must only stale the doc
+// whose region actually changed. check honoured this for the working tree while
+// report/explain/graph matched at file level, so a 1700-line file with 30 well
+// placed scopes flagged every doc touching it — the opposite of what scoping is
+// for. In Hangar this accounted for 18 of 19 stale docs, all reviewed as
+// still-true.
+func TestReport_ScopedRegionNotTouched(t *testing.T) {
+	dir := setupTestProject(t)
+
+	os.MkdirAll(filepath.Join(dir, "docs"), 0755)
+	os.WriteFile(filepath.Join(dir, "docs", "ALPHA.md"), []byte("# Alpha\n\nsrc/central.go\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "docs", "BETA.md"), []byte("# Beta\n\nsrc/central.go\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/ALPHA.md #alpha
+func Alpha() {}
+
+// @doc docs/BETA.md #beta
+func Beta() {}
+`), 0644)
+	commitAll(t, dir, "Add central file with two scoped regions")
+
+	// Change ONLY the #beta region, in a later commit than both docs.
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/ALPHA.md #alpha
+func Alpha() {}
+
+// @doc docs/BETA.md #beta
+func Beta() { changed() }
+`), 0644)
+	commitAll(t, dir, "Change only the beta region")
+
+	initTestEnv(t, dir)
+	reportStale, reportOrphaned = false, false
+
+	var stdout bytes.Buffer
+	reportCmd.SetOut(&stdout)
+	reportCmd.RunE(reportCmd, nil)
+	// Scoped to the STALE DOCS section: the coverage listing below it names
+	// every doc in the repo, so grepping the whole report proves nothing.
+	out := stdout.String()
+	staleSection := out
+	if i := strings.Index(out, "STALE DOCS"); i >= 0 {
+		staleSection = out[i:]
+		if j := strings.Index(staleSection, "\nBy Documentation File"); j >= 0 {
+			staleSection = staleSection[:j]
+		}
+	} else {
+		staleSection = ""
+	}
+
+	if strings.Contains(staleSection, "docs/ALPHA.md") {
+		t.Errorf("ALPHA owns lines the commit never touched; it must not be stale:\n%s", out)
+	}
+	if !strings.Contains(staleSection, "docs/BETA.md") {
+		t.Errorf("BETA owns the changed region and must still be stale:\n%s", out)
+	}
+}
+
+// The narrowing must not weaken whole-file links: without a scope, any change
+// to a linked file still stales the doc.
+func TestReport_WholeFileLinkStillStales(t *testing.T) {
+	dir := setupTestProject(t)
+
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { changed() }
+`), 0644)
+	commitAll(t, dir, "Change a whole-file-linked file")
+
+	initTestEnv(t, dir)
+	reportStale, reportOrphaned = false, false
+
+	var stdout bytes.Buffer
+	reportCmd.SetOut(&stdout)
+	reportCmd.RunE(reportCmd, nil)
+	if !strings.Contains(stdout.String(), "docs/API.md") {
+		t.Errorf("a whole-file link must still stale on any change, got:\n%s", stdout.String())
+	}
+}

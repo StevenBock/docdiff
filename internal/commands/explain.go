@@ -78,7 +78,9 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	} else {
 		info, _ := g.CommitInfo(ackFloor)
 		if baselineInfo.AckReanchored {
-			fmt.Fprintf(out, "  ack floor:       %s (re-anchored from amended floor %s)\n", info, baselineInfo.AckRecorded)
+			// "amended" named only one cause. A squashed lane landing rewrites
+			// the floor the same way and is the more common trigger in practice.
+			fmt.Fprintf(out, "  ack floor:       %s (re-anchored; recorded floor %s was rewritten by an amend or squash)\n", info, baselineInfo.AckRecorded)
 		} else {
 			fmt.Fprintf(out, "  ack floor:       %s\n", info)
 		}
@@ -98,9 +100,19 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(out, "  effective:       %s\n", baseline)
 	}
 
-	// Committed drift: linked files with commits after the baseline.
-	committed, _ := g.ChangedFilesBetween(baseline, "HEAD", files)
-	commits, _ := g.CommitsBetween(baseline, "HEAD", files)
+	// Committed drift: linked files with commits after the baseline, narrowed to
+	// the ones whose hunks land in a region this doc owns. Without the narrowing
+	// explain names a commit and file with no signal that the change sits 450
+	// lines outside the doc's scope — and it's the one place someone goes to
+	// learn WHY a doc is stale.
+	// committedAll is every linked file that changed; committed is the subset
+	// this doc actually owns. The working-tree section subtracts the FORMER, or
+	// a file whose only change is committed-but-out-of-scope would resurface
+	// below as though it were uncommitted.
+	committedAll, _ := g.ChangedFilesBetween(baseline, "HEAD", files)
+	committed := dropAnnotationOnlyChanges(g, baseline, "HEAD", committedAll)
+	committed = scopedChangedFiles(g, doc, baseline, "HEAD", committed, scanResult.Annotations, cfg.AnnotationTag)
+	commits, _ := g.CommitsBetween(baseline, "HEAD", committed)
 
 	fmt.Fprintln(out, "\nSince baseline:")
 	if len(committed) == 0 {
@@ -123,7 +135,7 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	// what's already committed since the baseline.
 	sinceWorkTree, _ := g.ChangedFilesSince(baseline, false, files)
 	committedSet := map[string]bool{}
-	for _, f := range committed {
+	for _, f := range committedAll {
 		committedSet[f] = true
 	}
 	var uncommitted []string
@@ -143,9 +155,16 @@ func runExplain(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintln(out)
+	// A `gate: structural` doc is omitted from report's stale list however much
+	// body-edit drift it has, so an unqualified STALE here contradicts what the
+	// user just saw in report. Say which polarity is in force.
+	structuralNote := ""
+	if cfg.StructuralDocs()[doc] {
+		structuralNote = " (gate: structural — NOT reported stale on this; only annotation-map changes and linked-file add/delete/rename gate this doc)"
+	}
 	switch {
 	case len(committed) > 0:
-		fmt.Fprintf(out, "Verdict: STALE — linked code changed since the doc's baseline. Run 'docdiff changes %s' for the diff.\n", doc)
+		fmt.Fprintf(out, "Verdict: STALE%s — linked code changed since the doc's baseline. Run 'docdiff changes %s' for the diff.\n", structuralNote, doc)
 	case len(uncommitted) > 0:
 		fmt.Fprintf(out, "Verdict: not stale in committed history, but uncommitted work touches linked files (run 'docdiff check').\n")
 	default:

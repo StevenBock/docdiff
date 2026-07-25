@@ -96,6 +96,12 @@ commit already made; remaining stale docs unrelated to HEAD stay a hidden count.
 
 Show documentation coverage and staleness report.
 
+Scoped annotations narrow staleness here too, not just in `check`: a doc is only
+stale when a commit since its baseline touched lines inside a region that doc
+owns. A central file carrying many scoped annotations therefore flags only the
+docs whose own regions changed. Files with no hunk data (added, deleted,
+renamed) and whole-file links keep the conservative whole-file behaviour.
+
 ```bash
 docdiff report [flags]
 ```

@@ -10,6 +10,7 @@ import (
 
 	"github.com/StevenBock/docdiff/internal/git"
 	"github.com/StevenBock/docdiff/internal/report"
+	"github.com/StevenBock/docdiff/internal/scanner"
 )
 
 type reviewBaseline struct {
@@ -26,7 +27,8 @@ type reviewBaseline struct {
 // them share that anchor, so nothing is stale. An `ack` floor (.docdiff-acks.json)
 // can move the anchor forward for docs reviewed without an edit. Warnings go to
 // errOut.
-func computeStaleDocs(g *git.Git, filesByDoc map[string][]string, errOut io.Writer) map[string]*report.StaleDoc {
+func computeStaleDocs(g *git.Git, res *scanner.Result, errOut io.Writer) map[string]*report.StaleDoc {
+	filesByDoc := res.FilesByDoc
 	stale := make(map[string]*report.StaleDoc)
 
 	acks, err := loadAcks(rootDir)
@@ -79,6 +81,10 @@ func computeStaleDocs(g *git.Git, filesByDoc map[string][]string, errOut io.Writ
 				continue
 			}
 			changed = dropAnnotationOnlyChanges(g, lastHash, "HEAD", changed)
+			// Match hunks against the doc's owned regions, exactly as `check`
+			// does for the working tree. A scoped annotation that owns lines
+			// 387-431 must not be flagged by a change at line 889.
+			changed = scopedChangedFiles(g, doc, lastHash, "HEAD", changed, res.Annotations, cfg.AnnotationTag)
 		}
 
 		if len(changed) > 0 {

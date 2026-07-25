@@ -40,7 +40,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 
 	g := git.New(rootDir)
 	staleDocs := make(map[string]bool)
-	for doc := range computeStaleDocs(g, scanResult.FilesByDoc, cmd.ErrOrStderr()) {
+	for doc := range computeStaleDocs(g, scanResult, cmd.ErrOrStderr()) {
 		staleDocs[doc] = true
 	}
 

@@ -249,7 +249,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	// without this split `check` reports "nothing linked to your changes" while
 	// the docs that very commit affected sit in the hidden count, labelled
 	// "unrelated". Non-gating either way — it reports on an already-made commit.
-	stale := computeStaleDocs(g, scanResult.FilesByDoc, cmd.ErrOrStderr())
+	stale := computeStaleDocs(g, scanResult, cmd.ErrOrStderr())
 	outstanding, unrelatedStale := partitionStale(g, scanResult, stale, affected)
 
 	// Surface missing back-links for the docs this change touches, so they're

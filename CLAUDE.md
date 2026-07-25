@@ -38,7 +38,7 @@ The `internal/language` package uses a strategy pattern for extensibility:
 
 **To add a new language:** Implement `Strategy` interface in a new file, then register it in `DefaultRegistry()` in `registry.go`.
 
-**Annotation scopes.** `@doc <path>` links a whole file to a doc. `@doc <path> #<scope>` (a `#`-prefixed suffix, e.g. `@doc docs/CORE.md #settings.general`) narrows ownership: the scoped annotation owns the code region from its line down to the next annotation, so a change elsewhere in a central/mirror file doesn't flag it. `@doc -` is a region terminator: it closes the current scoped region without assigning the code below it to any doc (`language.Terminator`; kept in `Details` as a boundary, excluded from `FilesByDoc`). `check` matches changed diff hunks against these regions (diff-backed modes only — `--files` and untracked/new files fall back to whole-file). Extraction lives in `extractDetailed`/`ExtractDetailed` on `BaseStrategy` (inherited by every language for free); the region + hunk-overlap logic is in `internal/commands/scope.go`.
+**Annotation scopes.** `@doc <path>` links a whole file to a doc. `@doc <path> #<scope>` (a `#`-prefixed suffix, e.g. `@doc docs/CORE.md #settings.general`) narrows ownership: the scoped annotation owns the code region from its line down to the next annotation, so a change elsewhere in a central/mirror file doesn't flag it. `@doc -` is a region terminator: it closes the current scoped region without assigning the code below it to any doc (`language.Terminator`; kept in `Details` as a boundary, excluded from `FilesByDoc`). `check` matches changed diff hunks against these regions (diff-backed modes only — `--files` and untracked/new files fall back to whole-file). **`report`/`explain`/`graph` match them too**, over the commit range baseline..HEAD via `ChangedHunksBetween` + `scopedChangedFiles`: `parseHunks` is diff-text generic, so the same `ownedRegion` logic applies to committed history. Without it a scoped annotation protected against `check` but not against staleness, so a central file with 30 well-placed scopes flagged every doc touching it — the opposite of what scoping is for (18 of Hangar's 19 stale docs). Extraction lives in `extractDetailed`/`ExtractDetailed` on `BaseStrategy` (inherited by every language for free); the region + hunk-overlap logic is in `internal/commands/scope.go`.
 
 **`Details` is sorted by line, and that is a contract.** Matching runs one comment pattern at a time, so a file mixing comment styles — a `.vue` with `//` in `<script setup>` and `<!-- -->` in `<template>` — comes out of the match loop grouped by style, with a line-2 annotation sitting after a line-900 one. `extractDetailed` sorts before returning. Consumers that ask positional questions (`lint`'s scope-to-eof asks which annotation is *last*) depend on this; `ownedRegion` deliberately does not, scanning for the nearest following line instead of trusting position, so region ownership stays correct even if the invariant is ever broken again.
 
@@ -57,7 +57,10 @@ commit (`git log -1 -- <doc>`). A doc is stale when a linked source file has a
 commit newer than the doc's last commit. Editing code and its doc in the **same
 commit** makes them share that anchor, so nothing is stale — one commit per unit
 of work, no separate sync step. `computeStaleDocs` (`internal/commands/staleness.go`)
-implements this and is shared by `report`, `check`, and `graph`.
+implements this and is shared by `report`, `check`, and `graph`; it narrows each
+doc's changed-file list to hunks landing in regions that doc owns. Narrowing is
+conservative in every failure direction — a git error, a file with no hunk data
+(added/deleted/renamed), or a whole-file annotation all keep the file.
 
 Diff hunks whose every changed line contains the annotation tag are
 **annotation-only** (ownership-map churn, not code change). Classification

@@ -144,7 +144,7 @@ func requiredDocsAtHead(g *git.Git, errOut io.Writer) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
-	return docsRequiredByHead(g, scanResult, computeStaleDocs(g, scanResult.FilesByDoc, errOut))
+	return docsRequiredByHead(g, scanResult, computeStaleDocs(g, scanResult, errOut))
 }
 
 // docsRequiredByHead is requiredDocsAtHead's core, taking an existing scan and
