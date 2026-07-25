@@ -133,6 +133,10 @@ docdiff changes <doc> [flags]
 | `--staged` | Diff against the index (staged changes only) |
 | `--hide-annotations` | Hide diff hunks whose only changes are `@doc` annotation lines |
 
+Like `report` and `explain`, this shows only the files whose changed hunks land
+in a region the doc owns — otherwise it prints another doc's hunk from a shared
+central file and invites an edit for code this doc doesn't describe.
+
 ### `docdiff ack`
 
 Mark a doc reviewed when its linked code changed but the doc needed **no** edit.

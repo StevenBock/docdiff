@@ -149,6 +149,23 @@ func scopedChangedFiles(g *git.Git, doc, from, to string, files []string, anns m
 	if err != nil {
 		return files
 	}
+	return scopedFilesFromHunks(doc, files, anns, hunks)
+}
+
+// scopedChangedFilesSince is the working-tree counterpart: same narrowing,
+// hunks taken from the working tree (or the index) rather than a commit range.
+func scopedChangedFilesSince(g *git.Git, doc, from string, staged bool, files []string, anns map[string]*scanner.Annotation, tag string) []string {
+	if len(files) == 0 {
+		return files
+	}
+	hunks, err := g.ChangedHunksSince(from, staged, files, tag)
+	if err != nil {
+		return files
+	}
+	return scopedFilesFromHunks(doc, files, anns, hunks)
+}
+
+func scopedFilesFromHunks(doc string, files []string, anns map[string]*scanner.Annotation, hunks map[string][]git.LineRange) []string {
 	kept := make([]string, 0, len(files))
 	for _, f := range files {
 		if hit, _ := fileHitsDoc(anns[f], doc, hunks); hit {

@@ -1289,3 +1289,52 @@ func Handler() { changed() }
 		t.Errorf("a whole-file link must still stale on any change, got:\n%s", stdout.String())
 	}
 }
+
+// `changes` is the command an author reads to decide what to edit, so showing a
+// hunk from another doc's region invites an edit for code this doc doesn't
+// describe. It narrows the same way report and explain do.
+func TestChanges_NarrowsToOwnedRegions(t *testing.T) {
+	dir := setupTestProject(t)
+
+	os.WriteFile(filepath.Join(dir, "docs", "ALPHA.md"), []byte("# Alpha\n\nsrc/central.go\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "docs", "BETA.md"), []byte("# Beta\n\nsrc/central.go\n"), 0644)
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/ALPHA.md #alpha
+func Alpha() {}
+
+// @doc docs/BETA.md #beta
+func Beta() {}
+`), 0644)
+	commitAll(t, dir, "Add central file")
+
+	os.WriteFile(filepath.Join(dir, "src", "central.go"), []byte(`package main
+
+// @doc docs/ALPHA.md #alpha
+func Alpha() {}
+
+// @doc docs/BETA.md #beta
+func Beta() { betaOnlyChange() }
+`), 0644)
+	commitAll(t, dir, "Change only the beta region")
+
+	initTestEnv(t, dir)
+	changesWorkTree, changesStaged, changesAI, changesSummary, changesCommits = false, false, false, false, false
+
+	var stdout bytes.Buffer
+	changesCmd.SetOut(&stdout)
+	if err := changesCmd.RunE(changesCmd, []string{"docs/ALPHA.md"}); err != nil {
+		t.Fatalf("changes failed: %v", err)
+	}
+	if strings.Contains(stdout.String(), "betaOnlyChange") {
+		t.Errorf("ALPHA must not be shown BETA's hunk:\n%s", stdout.String())
+	}
+
+	stdout.Reset()
+	if err := changesCmd.RunE(changesCmd, []string{"docs/BETA.md"}); err != nil {
+		t.Fatalf("changes failed: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "betaOnlyChange") {
+		t.Errorf("BETA owns the changed region and must still see its diff:\n%s", stdout.String())
+	}
+}

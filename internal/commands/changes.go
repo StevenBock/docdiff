@@ -77,8 +77,23 @@ func runChanges(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Show only the files whose changed hunks land in a region this doc owns —
+	// otherwise `changes` prints another doc's hunk from a shared central file
+	// and invites an edit for code this doc doesn't describe. Narrowed against
+	// the same source each output mode diffs against.
 	if changesWorkTree || changesStaged {
+		files = scopedChangedFilesSince(g, doc, lastHash, changesStaged, files, scanResult.Annotations, cfg.AnnotationTag)
+		if len(files) == 0 {
+			fmt.Fprintf(out, "No changes inside the regions %s owns.\n", doc)
+			return nil
+		}
 		return outputWorkTree(out, g, doc, lastHash, files, changesStaged)
+	}
+
+	files = scopedChangedFiles(g, doc, lastHash, "HEAD", files, scanResult.Annotations, cfg.AnnotationTag)
+	if len(files) == 0 {
+		fmt.Fprintf(out, "No changes inside the regions %s owns.\n", doc)
+		return nil
 	}
 
 	if changesAI {
