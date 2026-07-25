@@ -76,9 +76,19 @@ commit per doc in `.docdiff-acks.json` (repo root, committed); `effectiveBaselin
 takes the newer of the doc's last commit and its floor. A missing/garbage-collected
 floor falls back to the doc's own commit, so it never hides real changes. To keep
 the ack in the same commit as the code it reviews, `ack --amend` folds
-`.docdiff-acks.json` into HEAD. Because a commit cannot contain its own hash in
+`.docdiff-acks.json` into HEAD — right when the ack accompanies that code, wrong
+for acking a backlog of already-landed work, where amending an unrelated commit
+rewrites a sha other floors name. Because a commit cannot contain its own hash in
 the ack file, amended-away floors are re-anchored from the ack entry's committed
-history when staleness is computed.
+history when staleness is computed — by **content** (`reanchorFloor`: the newest
+commit whose committed ack file records that floor), never by a diff regex. A
+regex over the diff only sees the entry's *key* line, which is exactly what stays
+constant in the `{commit, reason}` form, so it walked back to whenever the key was
+introduced and resolved the floor BACKWARD: first acks converged under `--amend`,
+every re-ack of the same doc did not. Backward-only, so it over-reported staleness
+rather than hiding drift. If no commit records the floor, nothing is re-anchored,
+the baseline falls back to the doc's own commit, and `explain` says UNRESOLVED
+rather than printing a floor that silently did nothing.
 
 ### Core Flow
 

@@ -73,9 +73,16 @@ func runExplain(cmd *cobra.Command, args []string) error {
 		info, _ := g.CommitInfo(docCommit)
 		fmt.Fprintf(out, "  doc last commit: %s\n", info)
 	}
-	if ackFloor == "" {
+	switch {
+	case ackFloor == "":
 		fmt.Fprintln(out, "  ack floor:       none")
-	} else {
+	case baselineInfo.AckUnresolved:
+		// Say this out loud. Otherwise the doc just reappears as needing review
+		// and reads as "my ack didn't take" rather than "your ack names a commit
+		// that no longer exists and could not be traced".
+		fmt.Fprintf(out, "  ack floor:       UNRESOLVED — recorded %s is not reachable from HEAD and no commit records it;\n", baselineInfo.AckRecorded)
+		fmt.Fprintf(out, "                   falling back to the doc's own commit, so this ack suppresses nothing. Re-run 'docdiff ack %s'.\n", doc)
+	default:
 		info, _ := g.CommitInfo(ackFloor)
 		if baselineInfo.AckReanchored {
 			// "amended" named only one cause. A squashed lane landing rewrites

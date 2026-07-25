@@ -164,14 +164,31 @@ func lintFindings(res *scanner.Result, tag string, fanOutThreshold int, hasBound
 				// scope that was never bounded; those look identical from here,
 				// so it stays visible as an advisory rather than being silenced.
 				if hasBoundaryAbove != nil && !hasBoundaryAbove(file, d.Line) {
+					// The obvious remedy — re-link whole-file — creates a
+					// fan-out PROBLEM when the file already carries enough bare
+					// links, and fan-out's own advice is to scope. Saying
+					// "re-link whole-file" there sends an author into a gating
+					// finding. The observation stays (it is true either way);
+					// only the remedy changes.
+					bareCount := 0
+					for _, o := range ann.Details {
+						if o.Scope == "" && o.Path != language.Terminator {
+							bareCount++
+						}
+					}
+					remedy := fmt.Sprintf("Re-link whole-file, or bound it with '%s -' if it was meant to cover less", tag)
+					if bareCount+1 >= fanOutThreshold {
+						remedy = fmt.Sprintf("Re-linking whole-file would push this file to %d bare links and trip fan-out, so bound it with '%s -' instead — or leave it: a scope that names the file's one concern is honest even when it narrows nothing",
+							bareCount+1, tag)
+					}
 					out = append(out, lintFinding{
 						Rule:     "scope-covers-file",
 						File:     file,
 						Line:     d.Line,
 						Doc:      d.Path,
 						Advisory: true,
-						Message: fmt.Sprintf("%s:%d: scoped annotation #%s covers the whole file — nothing above it owns any code, so the scope name is doing no narrowing. Re-link whole-file, or bound it with '%s -' if it was meant to cover less",
-							file, d.Line, d.Scope, tag),
+						Message: fmt.Sprintf("%s:%d: scoped annotation #%s covers the whole file — nothing above it owns any code, so the scope name is doing no narrowing. %s",
+							file, d.Line, d.Scope, remedy),
 					})
 				} else {
 					// Name BOTH remedies. Saying only "if it shouldn't own

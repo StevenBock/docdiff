@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/StevenBock/docdiff/internal/config"
+	"github.com/StevenBock/docdiff/internal/git"
 	"github.com/StevenBock/docdiff/internal/language"
 )
 
@@ -1387,5 +1388,72 @@ func Beta() { betaProbe() }
 		t.Errorf("file-granular narrowing: once the file is kept its whole diff prints, "+
 			"including hunks ALPHA does not own — if this now fails, narrowing became "+
 			"hunk-granular and the docs need updating:\n%s", out)
+	}
+}
+
+// Regression: with a --reason the ack entry is an object, so the doc's KEY line
+// stays unchanged when only the nested "commit" value moves. Re-anchoring used
+// `git log -G` over that key line, so it walked past the commit that actually
+// carried the ack and landed on whenever the key was introduced — resolving the
+// floor BACKWARD, which can only under-report freshness. `ack --amend` then
+// never converged for any doc carrying a reason.
+func TestAckAmend_ReanchorsWithReason(t *testing.T) {
+	dir := setupTestProject(t)
+
+	// First ack, with a reason, so the entry is written in object form.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { first() }
+`), 0644)
+	commitAll(t, dir, "Change handler once")
+
+	initTestEnv(t, dir)
+	ackTo, ackAmend, ackRequired = "", true, false
+	ackReason = "reviewed: rename only"
+	defer func() { ackAmend, ackReason, ackRequired = false, "", false }()
+
+	var ackOut bytes.Buffer
+	ackCmd.SetOut(&ackOut)
+	if err := ackCmd.RunE(ackCmd, []string{"docs/API.md"}); err != nil {
+		t.Fatalf("first ack failed: %v", err)
+	}
+
+	// Second round: the key line is now already present, so only the nested
+	// commit value changes — the exact shape that defeated the regex.
+	os.WriteFile(filepath.Join(dir, "src", "handler.go"), []byte(`package main
+
+// @doc docs/API.md
+func Handler() { second() }
+`), 0644)
+	commitAll(t, dir, "Change handler again")
+
+	ackOut.Reset()
+	if err := ackCmd.RunE(ackCmd, []string{"docs/API.md"}); err != nil {
+		t.Fatalf("second ack failed: %v", err)
+	}
+
+	head := runGit(t, dir, "rev-parse", "--short", "HEAD")
+
+	acks, err := loadAcks(dir)
+	if err != nil {
+		t.Fatalf("loadAcks: %v", err)
+	}
+	floor, reanchored := resolveAckFloor(git.New(dir), "docs/API.md", acks["docs/API.md"])
+	if !reanchored {
+		t.Fatalf("amend rewrote the recorded sha, so the floor must re-anchor; got floor=%s", floor)
+	}
+	if floor != head {
+		t.Errorf("floor re-anchored to %s, want HEAD %s — resolving anywhere else moves the floor backward", floor, head)
+	}
+
+	// And the doc must actually be fresh: a floor that lands behind the change
+	// it reviewed leaves the doc stale and the loop never converges.
+	reportStale, reportOrphaned, reportNoBacklinks = false, false, true
+	var stdout bytes.Buffer
+	reportCmd.SetOut(&stdout)
+	reportCmd.RunE(reportCmd, nil)
+	if strings.Contains(stdout.String(), "STALE DOCS") {
+		t.Errorf("acked-with-reason doc should be fresh after --amend, got:\n%s", stdout.String())
 	}
 }

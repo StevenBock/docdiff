@@ -150,8 +150,15 @@ when there's nothing to edit, `ack` records a floor commit (default HEAD) in
 `.docdiff-acks.json` instead. Staleness is measured from the newer of the doc's
 own last commit and this floor, so the doc stops reporting stale until its code
 changes again. The floor is an existing commit, so there's no chicken-and-egg —
-commit the code, run `ack`, and commit `.docdiff-acks.json`. Use `--amend` to
-fold that ack into the current HEAD commit.
+commit the code, run `ack`, and commit `.docdiff-acks.json`.
+
+**When to use `--amend`, and when not to.** Use it when the ack accompanies the
+code it reviews — you are about to land a change and want its ack in the same
+commit, per the commit-together rule. Do **not** reach for it when acking code
+that already landed: there is nothing to fold the ack into but an unrelated
+commit, and rewriting that commit's sha invalidates every floor recorded against
+it. For an already-landed backlog, run `ack` and commit `.docdiff-acks.json` on
+its own.
 
 Use `--reason` to record *why* the doc needed no edit. An ack asserts "I read
 this and it is still true"; without a reason a bulk ack is indistinguishable

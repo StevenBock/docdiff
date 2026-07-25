@@ -5,8 +5,6 @@ package commands
 import (
 	"fmt"
 	"io"
-	"regexp"
-	"strconv"
 
 	"github.com/StevenBock/docdiff/internal/git"
 	"github.com/StevenBock/docdiff/internal/report"
@@ -18,6 +16,11 @@ type reviewBaseline struct {
 	AckRecorded   string
 	AckFloor      string
 	AckReanchored bool
+	// AckUnresolved marks a recorded floor that is unreachable AND could not be
+	// re-anchored. The ack then hides nothing (the baseline falls back to the
+	// doc's own commit), but silently: the doc reappears as needing review with
+	// no hint that its ack failed to resolve rather than simply being old.
+	AckUnresolved bool
 	Effective     string
 }
 
@@ -171,11 +174,18 @@ func baselineForDoc(g *git.Git, doc string, acks map[string]string) (reviewBasel
 
 	recorded := acks[doc]
 	ackFloor, reanchored := resolveAckFloor(g, doc, recorded)
+	unresolved := false
+	if recorded != "" && !reanchored {
+		if reachable, err := g.IsAncestor(recorded, "HEAD"); err == nil && !reachable {
+			unresolved = true
+		}
+	}
 	return reviewBaseline{
 		DocCommit:     docCommit,
 		AckRecorded:   recorded,
 		AckFloor:      ackFloor,
 		AckReanchored: reanchored,
+		AckUnresolved: unresolved,
 		Effective:     effectiveBaseline(g, docCommit, ackFloor),
 	}, nil
 }
@@ -189,16 +199,53 @@ func resolveAckFloor(g *git.Git, doc, recorded string) (string, bool) {
 		return recorded, false
 	}
 
-	reanchored, err := g.LastCommitMatching(acksFile, ackEntryRegex(doc))
-	if err == nil && reanchored != "" {
+	if reanchored := reanchorFloor(g, doc, recorded); reanchored != "" {
 		return reanchored, true
 	}
 
+	// Couldn't identify the successor. Returning the unreachable sha makes
+	// effectiveBaseline fall back to the doc's own commit, so the ack hides
+	// nothing — better than landing on some older commit that merely mentions
+	// the doc, which reads as success while under-reporting freshness.
 	return recorded, false
 }
 
-func ackEntryRegex(doc string) string {
-	return regexp.QuoteMeta(strconv.Quote(doc)) + `\s*:`
+// reanchorFloor finds the newest commit reachable from HEAD whose committed ack
+// file records `recorded` as the floor for `doc` — i.e. the commit that carried
+// this ack after an amend or squash rewrote the sha it names.
+//
+// It matches on CONTENT, not on a diff regex. A regex over the diff only sees
+// the entry's key line, which is exactly what stays constant in the
+// `{commit, reason}` form: there the sha lives on a nested line, so a floor
+// update leaves the key line as unchanged context and `git log -G` walks past
+// the real commit to whenever the key was introduced. That resolved the floor
+// BACKWARD, which can only under-report freshness, and made `ack --amend`
+// unable to converge for any doc carrying a reason.
+func reanchorFloor(g *git.Git, doc, recorded string) string {
+	history, err := g.FileHistory(acksFile)
+	if err != nil {
+		return ""
+	}
+	// FileHistory is oldest-first; the newest commit recording this floor is
+	// the one that carried it.
+	for i := len(history) - 1; i >= 0; i-- {
+		content, err := g.ShowFileAt(history[i], acksFile)
+		if err != nil {
+			continue
+		}
+		entries, err := parseAckEntries([]byte(content))
+		if err != nil {
+			continue
+		}
+		if e, ok := entries[doc]; ok && e.Commit == recorded {
+			short, err := g.ResolveShort(history[i])
+			if err != nil {
+				return history[i]
+			}
+			return short
+		}
+	}
+	return ""
 }
 
 // effectiveBaseline picks the review anchor: the newer of the doc's own last
