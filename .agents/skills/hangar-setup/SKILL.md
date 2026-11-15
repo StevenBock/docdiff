@@ -37,7 +37,7 @@ Compose short imperative sections, a few lines each, only for what is actually o
 
 - **Always:** which running processes hold the answers — read a watcher or dev server's bounded output (`hangar_read_process_output`) instead of re-running builds and tests; the on-demand commands worth triggering; `hangar_stack_health` after changes.
 - **telemetry:** query traces/logs/metrics through the telemetry tools instead of adding print statements; name the services that report.
-- **lanes:** risky or multi-commit work goes to a lane, not the base checkout.
+- **lanes:** follow the repo's lane policy. If `hangar_config_schema` documents lane preparation, name this project's prerequisites and effective `lanes.setup` command, accounting for private config overrides. State that lane creation must succeed before handoff; name the dependency/generator refresh commands needed after changes in an existing lane. Missing preparation belongs to Hangar Onboarding.
 - **blueprints:** substantial features get planned as blueprints with the human.
 - **databases:** name the managed connections and what each holds.
 - **logbook:** read the Logbook before resuming long-running work; log what moved before finishing.
